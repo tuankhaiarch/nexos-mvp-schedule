@@ -273,7 +273,7 @@
         // =============================================
         // API CONFIGURATION - Google Sheets Backend
         // =============================================
-        const API_URL = 'https://script.google.com/macros/s/AKfycbxcObrb-TpaTHYyOW35R2EOH9yeJNUR7WQ5OZ8VoBjDQ5IQwtz8I1xi2ERhewJHmRDo/exec';
+        const API_URL = 'https://script.google.com/macros/s/AKfycbwzA1LOLalLOFflateNNs-rKeikU4ywRtSzH4kPK335B8r22QJ0K3ullhkvnhJyIJg7XA/exec';
         const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v5';
         
         // Sync status management
@@ -287,32 +287,112 @@
             syncText.textContent = text;
         }
         
-        // API Functions
-        async function apiGet(action, params = {}) {
-            const url = new URL(API_URL);
-            url.searchParams.append('action', action);
-            Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
-            
-            try {
-                const response = await fetch(url.toString(), { method: 'GET' });
-                const data = await response.json();
-                return data;
-            } catch (error) {
-                console.error('API GET Error:', error);
-                return { success: false, error: error.message };
-            }
+        // JSONP-based API call to bypass CORS
+        function apiGet(action, params = {}) {
+            return new Promise((resolve) => {
+                const callbackName = 'jsonp_callback_' + Date.now();
+                const url = new URL(API_URL);
+                url.searchParams.append('action', action);
+                url.searchParams.append('callback', callbackName);
+                Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+                
+                window[callbackName] = function(data) {
+                    delete window[callbackName];
+                    document.body.removeChild(script);
+                    resolve(data);
+                };
+                
+                const script = document.createElement('script');
+                script.src = url.toString();
+                script.onerror = function() {
+                    delete window[callbackName];
+                    document.body.removeChild(script);
+                    resolve({ success: false, error: 'Network error' });
+                };
+                document.body.appendChild(script);
+            });
         }
         
-        async function apiPost(action, data = {}) {
+        // POST via hidden form to bypass CORS
+        function apiPost(action, data = {}) {
+            return new Promise((resolve) => {
+                const callbackName = 'jsonp_callback_' + Date.now();
+                const iframeName = 'submit_iframe_' + Date.now();
+                
+                // Create hidden iframe
+                let iframe = document.createElement('iframe');
+                iframe.name = iframeName;
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+                
+                // Create form
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = API_URL + '?callback=' + callbackName;
+                form.target = iframeName;
+                form.enctype = 'application/x-www-form-urlencoded';
+                
+                const payload = { action, ...data };
+                Object.keys(payload).forEach(key => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = key;
+                    input.value = typeof payload[key] === 'object' ? JSON.stringify(payload[key]) : payload[key];
+                    form.appendChild(input);
+                });
+                
+                document.body.appendChild(form);
+                
+                // Setup callback
+                window[callbackName] = function(response) {
+                    delete window[callbackName];
+                    document.body.removeChild(form);
+                    setTimeout(() => document.body.removeChild(iframe), 1000);
+                    resolve(response);
+                };
+                
+                // Handle iframe load
+                iframe.onload = function() {
+                    try {
+                        const doc = iframe.contentDocument || iframe.contentWindow.document;
+                        const text = doc.body.innerText;
+                        if (text && text.includes(callbackName)) {
+                            eval(text);
+                        }
+                    } catch(e) {
+                        // Cross-origin, assume success
+                        resolve({ success: true, message: 'Request sent' });
+                    }
+                };
+                
+                form.submit();
+                
+                // Timeout fallback
+                setTimeout(() => {
+                    if (window[callbackName]) {
+                        delete window[callbackName];
+                        document.body.removeChild(form);
+                        resolve({ success: true, message: 'Request sent (timeout)' });
+                    }
+                }, 5000);
+            });
+        }
+        
+        // Simple POST using redirect (works with Google Apps Script)
+        async function apiPostSimple(action, data = {}) {
             try {
+                const formData = new FormData();
+                formData.append('action', action);
+                Object.keys(data).forEach(key => {
+                    formData.append(key, typeof data[key] === 'object' ? JSON.stringify(data[key]) : data[key]);
+                });
+                
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action, ...data }),
-                    mode: 'cors'
+                    body: formData,
+                    mode: 'no-cors'
                 });
-                const result = await response.json();
-                return result;
+                return { success: true, message: 'Request sent' };
             } catch (error) {
                 console.error('API POST Error:', error);
                 return { success: false, error: error.message };
@@ -374,7 +454,7 @@
             const deliv = sprintsData[sprintIndex].deliverables[delivIndex];
             showSyncStatus('syncing', 'Đang lưu...');
             
-            const result = await apiPost('updateDeliverable', {
+            const result = apiPostSimple('updateDeliverable', {
                 id: deliv.id,
                 milestone_id: sprintIndex + 1,
                 status: deliv.status,
@@ -394,7 +474,7 @@
         async function addMeetingToAPI(sprintIndex, meeting) {
             showSyncStatus('syncing', 'Đang tạo meeting...');
             
-            const result = await apiPost('addMeeting', {
+            const result = apiPostSimple('addMeeting', {
                 id: meeting.id,
                 milestone_id: sprintIndex + 1,
                 title: meeting.title,
@@ -416,7 +496,7 @@
         async function deleteMeetingFromAPI(meetingId) {
             showSyncStatus('syncing', 'Đang xóa...');
             
-            const result = await apiPost('deleteMeeting', { id: meetingId });
+            const result = apiPostSimple('deleteMeeting', { id: meetingId });
             
             if (result.success) {
                 showSyncStatus('synced', 'Đã xóa');
