@@ -26,15 +26,18 @@
         .doc-item.drag-over-bottom { border-bottom: 3px solid #10b981 !important; background: rgba(16, 185, 129, 0.1); }
         .drag-handle { 
             cursor: grab; 
-            opacity: 0.5; 
+            opacity: 0.8; 
             transition: all 0.2s; 
-            padding: 6px;
-            border-radius: 4px;
+            padding: 8px;
+            border-radius: 6px;
             margin-right: 4px;
+            background: rgba(100, 116, 139, 0.3);
+            border: 1px solid rgba(100, 116, 139, 0.3);
         }
         .drag-handle:hover { 
             opacity: 1; 
-            background: rgba(16, 185, 129, 0.3);
+            background: rgba(16, 185, 129, 0.4);
+            border-color: rgba(16, 185, 129, 0.5);
         }
         .drag-handle:active { cursor: grabbing; }
         .drag-handle.dragging { background: rgba(16, 185, 129, 0.5); }
@@ -1341,8 +1344,9 @@
                              draggable="true"
                              data-drag-handle="${node.id}"
                              ondragstart="handleDragStart(event, '${node.id}')"
-                             ondragend="handleDragEnd(event)">
-                            <svg class="w-4 h-4 text-slate-400" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+                             ondragend="handleDragEnd(event)"
+                             title="Kéo thả để di chuyển">
+                            <svg class="w-4 h-4 text-slate-300" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
                         </div>
                         <div class="flex-1 flex items-center gap-2 min-w-0" 
                              ondragover="handleDragOver(event)"
