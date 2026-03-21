@@ -11,9 +11,28 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
         .tooltip-content { display: none; }
         .has-tooltip:hover .tooltip-content { display: block; }
+        .loading-overlay { position: fixed; inset: 0; background: rgba(2,6,23,0.9); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+        .loading-spinner { width: 48px; height: 48px; border: 4px solid #334155; border-top-color: #06b6d4; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .sync-indicator { position: fixed; bottom: 20px; left: 20px; z-index: 100; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .sync-indicator.syncing { background: #1e3a5f; color: #60a5fa; }
+        .sync-indicator.synced { background: #134e4a; color: #2dd4bf; }
+        .sync-indicator.error { background: #7f1d1d; color: #fca5a5; }
     </style>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30 pb-24 relative overflow-x-hidden">
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p class="mt-4 text-cyan-400 font-medium" data-i18n="loadingText">Đang tải dữ liệu...</p>
+    </div>
+
+    <!-- Sync Indicator -->
+    <div id="sync-indicator" class="sync-indicator synced">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        <span id="sync-text">Đã đồng bộ</span>
+    </div>
 
     <!-- Language Toggle Button -->
     <div class="fixed top-4 right-4 md:top-6 md:right-6 z-[100]">
@@ -39,24 +58,15 @@
 
     <!-- Metro Map Section with Timeline -->
     <section class="py-16 px-4 md:px-12 w-full max-w-6xl mx-auto relative">
-        <!-- Chuyển padding vào vùng chứa bên trong để hạ thấp đường timeline -->
         <div class="relative md:pb-12 overflow-x-auto custom-scrollbar">
             <div class="min-w-max md:min-w-0 px-4 relative md:pb-24">
-                
-                <!-- Background Timeline Line (Dời vị trí xuống đáy tuyệt đối md:bottom-0) -->
                 <div class="absolute z-0 w-1 md:h-2 bg-slate-800 rounded-full left-[156px] top-[28px] bottom-[28px] md:left-[96px] md:right-[96px] md:w-auto md:top-auto md:bottom-0">
-                    
-                    <!-- Milestone Markers -->
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[0%] top-[0%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="0"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[25%] top-[25%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="25"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[50%] top-[50%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="50"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[75%] top-[75%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="75"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[100%] top-[100%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="100"></div>
-
-                    <!-- Progress Line -->
                     <div id="timeline-progress" class="bg-cyan-500 rounded-full w-full h-0 md:w-0 md:h-full transition-all duration-1000 shadow-[0_0_10px_rgba(6,182,212,0.5)]"></div>
-                    
-                    <!-- Current Date Indicator -->
                     <div id="current-date-marker" class="absolute w-4 h-4 bg-white border-4 border-cyan-500 rounded-full shadow-lg z-20 transition-all duration-1000 group" style="transform: translate(-50%, -50%);">
                         <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-cyan-600 text-white text-xs font-bold py-1 px-3 rounded whitespace-nowrap hidden md:block">
                             <span data-i18n="todayPrefix">Hôm nay:</span> <span id="today-text"></span>
@@ -68,11 +78,7 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- Nodes Container -->
-                <div id="nodes-container" class="relative z-10 flex flex-col space-y-20 md:flex-row md:justify-between md:items-start md:space-y-0 pb-10 md:pb-0">
-                    <!-- Rendered via JS -->
-                </div>
+                <div id="nodes-container" class="relative z-10 flex flex-col space-y-20 md:flex-row md:justify-between md:items-start md:space-y-0 pb-10 md:pb-0"></div>
             </div>
         </div>
     </section>
@@ -80,10 +86,8 @@
     <!-- Details Dashboard Area -->
     <section class="pb-12 px-4 md:px-6 w-full max-w-6xl mx-auto">
         <div id="dashboard-content" class="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 md:p-10 backdrop-blur-md shadow-2xl transition-all duration-500">
-            
             <div class="mb-8 border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div class="flex-1">
-                    <!-- Editable Date Wrapper -->
                     <div class="flex items-center gap-2 group mb-2 w-max cursor-pointer" onclick="editMilestoneDate()">
                         <p id="detail-date" class="text-cyan-400 font-mono text-sm border-b border-dashed border-transparent hover:border-cyan-400 transition-colors"></p>
                         <button class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-cyan-400 transition-opacity" title="Sửa thời gian"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
@@ -96,9 +100,8 @@
                 <div id="detail-badge" class="px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-lg inline-block w-max shrink-0"></div>
             </div>
 
-            <!-- 3 Columns Layout (Tasks, Tools, Deliverables) -->
+            <!-- 3 Columns Layout -->
             <div class="grid md:grid-cols-12 gap-8 mb-10">
-                <!-- Task Column -->
                 <div class="md:col-span-4 flex flex-col h-full">
                     <div class="flex items-center gap-3 text-slate-300 border-b border-slate-800 pb-3 mb-4">
                         <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
@@ -108,7 +111,6 @@
                     <button onclick="addItem('tasks')" class="mt-3 py-2 text-xs font-semibold text-slate-500 hover:text-blue-400 border border-dashed border-slate-700 hover:border-blue-500/50 rounded-lg w-full flex items-center justify-center gap-2 transition-colors"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> <span data-i18n="addBtnText">Thêm</span></button>
                 </div>
 
-                <!-- Tool Column -->
                 <div class="md:col-span-3 flex flex-col h-full relative md:before:absolute md:before:inset-y-0 md:before:-left-4 md:before:w-px md:before:bg-gradient-to-b md:before:from-slate-800 md:before:to-transparent">
                     <div class="flex items-center gap-3 text-slate-300 border-b border-slate-800 pb-3 mb-4">
                         <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
@@ -118,7 +120,6 @@
                     <button onclick="addItem('tools')" class="mt-3 py-2 text-xs font-semibold text-slate-500 hover:text-amber-400 border border-dashed border-slate-700 hover:border-amber-500/50 rounded-lg w-full flex items-center justify-center gap-2 transition-colors"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> <span data-i18n="addBtnText">Thêm</span></button>
                 </div>
                 
-                <!-- Deliverable Column -->
                 <div class="md:col-span-5 flex flex-col h-full relative md:before:absolute md:before:inset-y-0 md:before:-left-4 md:before:w-px md:before:bg-gradient-to-b md:before:from-slate-800 md:before:to-transparent">
                     <div class="flex items-center justify-between text-slate-300 border-b border-slate-800 pb-3 mb-4">
                         <div class="flex items-center gap-3">
@@ -161,14 +162,12 @@
                     <span data-i18n="addDocBtn">Thêm Thư mục/Tài liệu</span>
                 </button>
             </div>
-            
             <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-x-auto custom-scrollbar">
                 <div id="document-tree-root" class="min-w-[600px]"></div>
             </div>
         </div>
     </section>
 
-    <!-- Modals -->
     <!-- Note Modal -->
     <div id="note-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 opacity-0 transition-opacity">
         <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md shadow-2xl transform scale-95 transition-transform" id="note-modal-content">
@@ -271,7 +270,165 @@
     </div>
 
     <script>
-        // --- TRANSLATION / i18n ---
+        // =============================================
+        // API CONFIGURATION - Google Sheets Backend
+        // =============================================
+        const API_URL = 'https://script.google.com/macros/s/AKfycbxcObrb-TpaTHYyOW35R2EOH9yeJNUR7WQ5OZ8VoBjDQ5IQwtz8I1xi2ERhewJHmRDo/exec';
+        const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v5';
+        
+        // Sync status management
+        let isSyncing = false;
+        let pendingSync = null;
+        
+        function showSyncStatus(status, text) {
+            const indicator = document.getElementById('sync-indicator');
+            const syncText = document.getElementById('sync-text');
+            indicator.className = 'sync-indicator ' + status;
+            syncText.textContent = text;
+        }
+        
+        // API Functions
+        async function apiGet(action, params = {}) {
+            const url = new URL(API_URL);
+            url.searchParams.append('action', action);
+            Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+            
+            try {
+                const response = await fetch(url.toString(), { method: 'GET' });
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('API GET Error:', error);
+                return { success: false, error: error.message };
+            }
+        }
+        
+        async function apiPost(action, data = {}) {
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, ...data }),
+                    mode: 'cors'
+                });
+                const result = await response.json();
+                return result;
+            } catch (error) {
+                console.error('API POST Error:', error);
+                return { success: false, error: error.message };
+            }
+        }
+        
+        // Load data from API
+        async function loadFromAPI() {
+            showSyncStatus('syncing', 'Đang đồng bộ...');
+            const result = await apiGet('getAllData');
+            
+            if (result.success && result.data) {
+                // Merge API data with local structure
+                if (result.data.deliverables && Array.isArray(result.data.deliverables)) {
+                    result.data.deliverables.forEach(d => {
+                        const sprintIndex = d.milestone_id - 1;
+                        if (sprintIndex >= 0 && sprintIndex < sprintsData.length) {
+                            const deliv = sprintsData[sprintIndex].deliverables.find(item => item.id === d.id);
+                            if (deliv) {
+                                deliv.status = d.status || 'open';
+                                deliv.link = d.link || '';
+                                deliv.notes = d.notes ? JSON.parse(d.notes) : [];
+                            }
+                        }
+                    });
+                }
+                
+                if (result.data.meetings && Array.isArray(result.data.meetings)) {
+                    result.data.meetings.forEach(m => {
+                        const sprintIndex = m.milestone_id - 1;
+                        if (sprintIndex >= 0 && sprintIndex < sprintsData.length) {
+                            // Check if meeting already exists
+                            const exists = sprintsData[sprintIndex].meetings.find(item => item.id === m.id);
+                            if (!exists) {
+                                sprintsData[sprintIndex].meetings.push({
+                                    id: m.id,
+                                    title: m.title,
+                                    time: m.time,
+                                    link: m.link || '',
+                                    attendees: m.attendees ? m.attendees.split(',') : [],
+                                    agenda: m.agenda || '',
+                                    momLink: m.mom_link || ''
+                                });
+                            }
+                        }
+                    });
+                }
+                
+                showSyncStatus('synced', 'Đã đồng bộ');
+                return true;
+            } else {
+                showSyncStatus('error', 'Lỗi đồng bộ');
+                return false;
+            }
+        }
+        
+        // Save deliverable to API
+        async function saveDeliverableToAPI(sprintIndex, delivIndex) {
+            const deliv = sprintsData[sprintIndex].deliverables[delivIndex];
+            showSyncStatus('syncing', 'Đang lưu...');
+            
+            const result = await apiPost('updateDeliverable', {
+                id: deliv.id,
+                milestone_id: sprintIndex + 1,
+                status: deliv.status,
+                link: deliv.link,
+                notes: JSON.stringify(deliv.notes)
+            });
+            
+            if (result.success) {
+                showSyncStatus('synced', 'Đã lưu');
+            } else {
+                showSyncStatus('error', 'Lỗi lưu');
+            }
+            return result;
+        }
+        
+        // Add meeting to API
+        async function addMeetingToAPI(sprintIndex, meeting) {
+            showSyncStatus('syncing', 'Đang tạo meeting...');
+            
+            const result = await apiPost('addMeeting', {
+                id: meeting.id,
+                milestone_id: sprintIndex + 1,
+                title: meeting.title,
+                time: meeting.time,
+                link: meeting.link,
+                attendees: meeting.attendees.join(','),
+                agenda: meeting.agenda
+            });
+            
+            if (result.success) {
+                showSyncStatus('synced', 'Đã tạo meeting');
+            } else {
+                showSyncStatus('error', 'Lỗi tạo meeting');
+            }
+            return result;
+        }
+        
+        // Delete meeting from API
+        async function deleteMeetingFromAPI(meetingId) {
+            showSyncStatus('syncing', 'Đang xóa...');
+            
+            const result = await apiPost('deleteMeeting', { id: meetingId });
+            
+            if (result.success) {
+                showSyncStatus('synced', 'Đã xóa');
+            } else {
+                showSyncStatus('error', 'Lỗi xóa');
+            }
+            return result;
+        }
+
+        // =============================================
+        // TRANSLATION / i18n
+        // =============================================
         let currentLang = 'vi';
 
         const TRANSLATIONS = {
@@ -294,7 +451,8 @@
                 unspecified: "Chưa xác định", noContent: "Không có nội dung.", noMom: "Chưa có biên bản", attendeesEmpty: "Chưa xếp người tham dự",
                 openLink: "Mở Link", itSupport: "Hỗ trợ IT", detailsTxt: "Chi tiết:", alertMeet: "Nhập Tiêu đề và Thời gian.",
                 confirmDelete: "Bạn có chắc chắn muốn xóa?", addBtnText: "Thêm", addDelivBtn: "Thêm Deliverable",
-                promptEdit: "Nhập nội dung mới:", promptDeliv: "Nhập tên Deliverable:", promptMsDate: "Nhập thời gian (VD: 16/03 - 25/03):"
+                promptEdit: "Nhập nội dung mới:", promptDeliv: "Nhập tên Deliverable:", promptMsDate: "Nhập thời gian (VD: 16/03 - 25/03):",
+                loadingText: "Đang tải dữ liệu..."
             },
             en: {
                 headerLabel: "NEXOS Strategic Plan", mainTitle: "MVP Roadmap",
@@ -315,7 +473,8 @@
                 unspecified: "Unspecified", noContent: "No content.", noMom: "No MOM yet", attendeesEmpty: "No attendees",
                 openLink: "Open Link", itSupport: "IT Support", detailsTxt: "Details:", alertMeet: "Enter Title and Time.",
                 confirmDelete: "Are you sure you want to delete?", addBtnText: "Add", addDelivBtn: "Add Deliverable",
-                promptEdit: "Enter new content:", promptDeliv: "Deliverable Name:", promptMsDate: "Enter timeline (E.g. 16/03 - 25/03):"
+                promptEdit: "Enter new content:", promptDeliv: "Deliverable Name:", promptMsDate: "Enter timeline (E.g. 16/03 - 25/03):",
+                loadingText: "Loading data..."
             }
         };
 
@@ -346,10 +505,9 @@
             renderDocumentTree();
         }
 
-        // --- CORE APP DATA & LOGIC ---
-        // Version v4 để clear bộ nhớ cache cũ đảm bảo áp dụng thuật toán ngày mới
-        const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v4'; 
-
+        // =============================================
+        // CORE APP DATA
+        // =============================================
         const STATUSES = {
             open: { label: { vi: 'Open', en: 'Open' }, color: 'bg-slate-600 text-slate-300', icon: '<circle cx="12" cy="12" r="5" fill="currentColor"/>' },
             in_progress: { label: { vi: 'In Progress', en: 'In Progress' }, color: 'bg-blue-500 text-white shadow-[0_0_8px_rgba(59,130,246,0.6)]', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />' },
@@ -358,7 +516,7 @@
         };
         const statusKeys = Object.keys(STATUSES);
 
-        // Khởi tạo Dữ liệu Gốc (5 Milestone tĩnh)
+        // Initial Data Structure (5 Milestones)
         let sprintsData = [
             {
                 id: 1, date: "16/03 - 25/03", 
@@ -376,11 +534,9 @@
                     { id: "d1_1", text: { vi: "PRD đã thống nhất", en: "Finalized PRD" }, status: "open", link: "", notes: [] },
                     { id: "d1_2", text: { vi: "Sơ đồ Userflow", en: "Userflow diagram" }, status: "open", link: "", notes: [] },
                     { id: "d1_3", text: { vi: "Sơ đồ Cashflow", en: "Cashflow diagram" }, status: "open", link: "", notes: [] },
-                    { id: "d1_4", text: { vi: `<u class="underline-offset-4 decoration-slate-500">Bộ tài liệu đóng gói</u> <span class="text-amber-400 font-semibold italic text-xs ml-1">(gửi IT support)</span>`, en: `<u class="underline-offset-4 decoration-slate-500">Packaging documents</u> <span class="text-amber-400 font-semibold italic text-xs ml-1">(send to IT)</span>` }, status: "open", link: "", notes: [] }
+                    { id: "d1_4", text: { vi: `Bộ tài liệu đóng gói (gửi IT support)`, en: `Packaging documents (send to IT)` }, status: "open", link: "", notes: [] }
                 ],
-                meetings: [
-                    { id: "m1_1", title: "Kick-off & Chốt PRD", time: "2026-03-18T09:30", link: "https://meet.google.com/abc-xyz", attendees: ["CEO", "CPO", "IT Lead"], agenda: "Review initial PRD", momLink: "" }
-                ]
+                meetings: []
             },
             {
                 id: 2, date: "26/03 - 05/04", 
@@ -457,24 +613,13 @@
         let activeNodeIndex = 0;
         let activeDelivForNote = null; 
         let documentTreeData = [
-            {
-                id: "doc_root_1",
-                name: { vi: "1. Pháp lý & Kế toán", en: "1. Legal & Accounting" },
-                link: "",
-                isOpen: true,
-                children: [
-                    { id: "doc_child_1_1", name: { vi: "Giấy phép ĐKKD", en: "Business License" }, link: "", isOpen: false, children: [] }
-                ]
-            },
-            {
-                id: "doc_root_2",
-                name: { vi: "2. Master Plan & Báo cáo", en: "2. Master Plan & Reports" },
-                link: "https://docs.google.com/spreadsheets/...",
-                isOpen: true,
-                children: []
-            }
+            { id: "doc_root_1", name: { vi: "1. Pháp lý & Kế toán", en: "1. Legal & Accounting" }, link: "", isOpen: true, children: [] },
+            { id: "doc_root_2", name: { vi: "2. Master Plan & Báo cáo", en: "2. Master Plan & Reports" }, link: "", isOpen: true, children: [] }
         ];
 
+        // =============================================
+        // LOCAL STORAGE (Cache)
+        // =============================================
         function loadState() {
             const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (saved) {
@@ -486,25 +631,21 @@
 
         function saveState() {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sprints: sprintsData, documents: documentTreeData }));
-            calculateTimelineProgress(); // Ép cập nhật lại progress mỗi khi lưu thay đổi (nhất là đổi ngày)
+            calculateTimelineProgress();
         }
 
-        // --- TIMELINE LOGIC (ĐỘNG - THEO NGÀY TỰ NHẬP) ---
-        // Hàm parse string ngày (VD: "16/03 - 25/03") thành Timestamp
+        // =============================================
+        // TIMELINE LOGIC
+        // =============================================
         function parseDateRange(dateStr) {
             try {
                 const parts = dateStr.split('-');
                 let start = parts[0].trim().split('/');
                 let end = parts[1] ? parts[1].trim().split('/') : start;
                 const year = new Date().getFullYear();
-                
-                // Mặc định định dạng DD/MM
                 const startDate = new Date(year, parseInt(start[1]) - 1, parseInt(start[0]));
                 const endDate = new Date(year, parseInt(end[1]) - 1, parseInt(end[0]));
-                
-                // Xử lý trường hợp trượt qua năm mới
                 if (endDate < startDate) endDate.setFullYear(year + 1);
-                
                 return { start: startDate.getTime(), end: endDate.getTime() };
             } catch(e) {
                 const now = Date.now(); return { start: now, end: now + 86400000 };
@@ -512,11 +653,8 @@
         }
 
         function calculateTimelineProgress() {
-            // Rút trích mốc thời gian bắt đầu của từng Milestone
             const milestones = sprintsData.map(s => parseDateRange(s.date).start);
-            // Điểm cuối cùng là ngày kết thúc của Milestone cuối cùng
             milestones.push(parseDateRange(sprintsData[sprintsData.length-1].date).end);
-
             const now = new Date();
             const todayTime = now.getTime();
             let percentage = 0;
@@ -526,14 +664,11 @@
             } else if (todayTime >= milestones[milestones.length - 1]) {
                 percentage = 100;
             } else {
-                // Thuật toán: Dựa trên 5 mốc, mỗi khoảng giữa các mốc đại diện cho 25% chiều dài thanh UI
                 for (let i = 0; i < 4; i++) {
                     if (todayTime >= milestones[i] && todayTime <= milestones[i+1]) {
                         const segmentDuration = milestones[i+1] - milestones[i];
                         const passed = todayTime - milestones[i];
-                        // Tính tỷ lệ phần trăm đã trôi qua trong TỪNG KHOẢNG thời gian thực tế
                         const segmentProgress = segmentDuration > 0 ? passed / segmentDuration : 1; 
-                        // Map tỷ lệ đó vào khoảng 25% trực quan trên giao diện
                         percentage = (i * 25) + (segmentProgress * 25);
                         break;
                     }
@@ -571,7 +706,9 @@
 
         window.addEventListener('resize', calculateTimelineProgress);
 
-        // --- RENDER NODES ---
+        // =============================================
+        // RENDER NODES
+        // =============================================
         function renderNodes() {
             const container = document.getElementById('nodes-container');
             container.innerHTML = '';
@@ -581,10 +718,8 @@
                 const nodeClasses = isActive ? `scale-125 shadow-lg ${sprint.shadow} ring-4 ring-slate-800` : 'scale-100 opacity-80 hover:opacity-100 hover:scale-110 cursor-pointer bg-slate-800 border-slate-700 text-slate-400';
                 const nodeColor = isActive ? sprint.color : 'border-4 border-slate-950';
                 const iconColor = isActive ? 'text-white' : 'text-slate-500';
-
                 const iconModified = sprint.icon.replace('text-white', iconColor);
                 const sprintTitleText = t(sprint.title).split(':')[0];
-
                 const totalDelivs = sprint.deliverables.length;
                 const completedDelivs = sprint.deliverables.filter(d => d.status === 'completed').length;
                 const progressPct = totalDelivs > 0 ? Math.round((completedDelivs / totalDelivs) * 100) : 0;
@@ -617,7 +752,9 @@
             });
         }
 
-        // --- DASHBOARD ---
+        // =============================================
+        // DASHBOARD
+        // =============================================
         window.editMilestoneDate = function() {
             const current = sprintsData[activeNodeIndex].date;
             const newDate = prompt(TRANSLATIONS[currentLang].promptMsDate, current);
@@ -633,8 +770,6 @@
             activeNodeIndex = index;
             const data = sprintsData[index];
             document.getElementById('detail-date').textContent = data.date;
-            
-            // Lấy tên hiển thị sau dấu 2 chấm
             const fullTitle = t(data.title);
             document.getElementById('detail-title').textContent = fullTitle.includes(':') ? fullTitle.split(':')[1].trim() : fullTitle;
             
@@ -659,8 +794,9 @@
             updateDashboard(index);
         }
 
-        // --- CRUD LOGIC FOR TASKS, TOOLS ---
-
+        // =============================================
+        // CRUD FOR TASKS, TOOLS
+        // =============================================
         function renderEditableList(items, iconSVG, type, sprintIndex) {
             return items.map((item, idx) => `
                 <li class="group flex items-start justify-between bg-transparent hover:bg-slate-800/50 p-1.5 -mx-1.5 rounded transition-colors">
@@ -687,7 +823,7 @@
             const current = t(sprintsData[sprintIndex][type][idx]);
             const val = prompt(TRANSLATIONS[currentLang].promptEdit, current);
             if(val && val !== current) {
-                sprintsData[sprintIndex][type][idx] = val; // Overwrite string
+                sprintsData[sprintIndex][type][idx] = val;
                 saveState(); updateDashboard(sprintIndex);
             }
         }
@@ -698,8 +834,9 @@
             saveState(); updateDashboard(sprintIndex);
         }
 
-
-        // --- DELIVERABLES LOGIC ---
+        // =============================================
+        // DELIVERABLES LOGIC
+        // =============================================
         function renderDeliverablesList(sprintIndex) {
             const deliverables = sprintsData[sprintIndex].deliverables;
             const container = document.getElementById('deliverable-list');
@@ -710,8 +847,6 @@
                 const hasNotes = item.notes.length > 0;
                 const unreadNotes = item.notes.filter(n => !n.is_resolved).length;
                 const linkIconColor = item.link ? 'text-cyan-400 hover:text-cyan-300' : 'text-slate-600 hover:text-slate-400';
-                
-                // Chuẩn bị Text thuần túy (loại bỏ HTML tags) cho Tooltip
                 const itemTextHTML = t(item.text);
                 const itemTextPlain = itemTextHTML.replace(/<[^>]*>?/gm, '').replace(/"/g, '&quot;');
 
@@ -719,15 +854,11 @@
                 <li class="bg-slate-800/50 rounded-xl border border-slate-700/50 p-3 hover:bg-slate-800 transition-colors group">
                     <div class="flex items-start md:items-center justify-between gap-3 flex-col md:flex-row w-full">
                         <div class="flex items-center gap-3 flex-1 min-w-0">
-                            <!-- Status Toggle -->
                             <button onclick="toggleStatus(${sprintIndex}, ${dIdx})" class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full ${statusObj.color} transition-all" title="${t(statusObj.label)}">
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">${statusObj.icon}</svg>
                             </button>
-                            
-                            <!-- Text & Actions -->
                             <div class="relative flex-1 min-w-0 flex items-center gap-2">
                                 <div class="text-sm font-medium text-slate-200 truncate pr-2 cursor-pointer hover:text-cyan-300 transition-colors" onclick="toggleNotePanel(${sprintIndex}, ${dIdx})" title="${itemTextPlain}">${itemTextHTML}</div>
-                                
                                 ${hasNotes ? `
                                     <div class="relative flex-shrink-0 flex items-center justify-center w-5 h-5 bg-slate-700 rounded-full border border-slate-600 cursor-pointer" onclick="toggleNotePanel(${sprintIndex}, ${dIdx})">
                                         <svg class="w-3 h-3 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd"></path></svg>
@@ -740,25 +871,17 @@
                                 `}
                             </div>
                         </div>
-
-                        <!-- Right Side: Actions & Document Link -->
                         <div class="flex-shrink-0 flex items-center gap-2 w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-0 border-slate-700/50">
-                            
-                            <!-- Edit/Delete Delivery actions (Moved here) -->
                             <div class="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity shrink-0">
                                 <button onclick="editDeliverableTitle(${sprintIndex}, ${dIdx})" class="p-1 text-slate-500 hover:text-cyan-400 bg-slate-900 rounded" title="Sửa tên"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
                                 <button onclick="deleteDeliverable(${sprintIndex}, ${dIdx})" class="p-1 text-slate-500 hover:text-rose-400 bg-slate-900 rounded" title="Xóa"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                             </div>
-
-                            <!-- Link Input & Icon -->
                             <input type="text" id="link-input-${sprintIndex}-${dIdx}" 
                                 class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 w-full md:w-32 focus:w-full md:focus:w-48 transition-all focus:outline-none focus:border-cyan-500" 
                                 placeholder="${TRANSLATIONS[currentLang].pasteLink}" value="${item.link}" title="${item.link}" onblur="saveLink(${sprintIndex}, ${dIdx}, this.value)">
                             <a href="${item.link || '#'}" target="${item.link ? '_blank' : '_self'}" class="${linkIconColor} p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>
                         </div>
                     </div>
-
-                    <!-- Expandable Note Panel -->
                     <div id="note-panel-${sprintIndex}-${dIdx}" class="hidden mt-3 pt-3 border-t border-slate-700/50 custom-scrollbar max-h-64 overflow-y-auto">
                         <div class="space-y-2 mb-3">
                             ${item.notes.length === 0 ? `<p class="text-xs text-slate-500 italic">${TRANSLATIONS[currentLang].noNote}</p>` : 
@@ -811,12 +934,16 @@
             const currentStatus = sprintsData[sprintIndex].deliverables[delivIndex].status;
             let currentIndex = statusKeys.indexOf(currentStatus);
             sprintsData[sprintIndex].deliverables[delivIndex].status = statusKeys[(currentIndex + 1) % statusKeys.length];
-            saveState(); renderDeliverablesList(sprintIndex); renderNodes(); 
+            saveState(); renderDeliverablesList(sprintIndex); renderNodes();
+            // Sync to API
+            saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
         function saveLink(sprintIndex, delivIndex, value) {
             sprintsData[sprintIndex].deliverables[delivIndex].link = value.trim();
             saveState(); renderDeliverablesList(sprintIndex);
+            // Sync to API
+            saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
         function toggleNotePanel(sprintIndex, delivIndex) {
@@ -827,7 +954,9 @@
             } else panel.classList.add('hidden');
         }
 
-        // --- NOTES LOGIC ---
+        // =============================================
+        // NOTES LOGIC
+        // =============================================
         const noteModal = document.getElementById('note-modal');
         const noteInput = document.getElementById('note-input');
 
@@ -851,6 +980,8 @@
                 saveState(); renderDeliverablesList(sprintIndex);
                 document.getElementById(`note-panel-${sprintIndex}-${delivIndex}`).classList.remove('hidden');
                 closeNoteModal();
+                // Sync to API
+                saveDeliverableToAPI(sprintIndex, delivIndex);
             }
         });
 
@@ -858,9 +989,13 @@
             sprintsData[sprintIndex].deliverables[delivIndex].notes[noteIndex].is_resolved = true;
             saveState(); renderDeliverablesList(sprintIndex);
             document.getElementById(`note-panel-${sprintIndex}-${delivIndex}`).classList.remove('hidden');
+            // Sync to API
+            saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
-        // --- MEETINGS LOGIC ---
+        // =============================================
+        // MEETINGS LOGIC
+        // =============================================
         function getInitials(name) {
             const c = name.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
             return c.length >= 2 ? c.substring(0, 2).toUpperCase() : (c.toUpperCase() || '??');
@@ -904,10 +1039,12 @@
             }).join('');
         }
 
-        window.deleteMeeting = function(sprintIndex, meetId) {
+        window.deleteMeeting = async function(sprintIndex, meetId) {
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             sprintsData[sprintIndex].meetings = sprintsData[sprintIndex].meetings.filter(m => m.id !== meetId);
             saveState(); updateDashboard(sprintIndex);
+            // Sync to API
+            await deleteMeetingFromAPI(meetId);
         }
 
         const meetModal = document.getElementById('meeting-modal');
@@ -920,20 +1057,25 @@
             setTimeout(() => meetModal.classList.add('hidden'), 300);
         }
 
-        document.getElementById('save-meeting-btn').addEventListener('click', () => {
+        document.getElementById('save-meeting-btn').addEventListener('click', async () => {
             const title = document.getElementById('meet-title').value.trim();
             const time = document.getElementById('meet-time').value;
             if(!title || !time) { alert(TRANSLATIONS[currentLang].alertMeet); return; }
 
             const attendeesList = document.getElementById('meet-attendees').value.trim().split(',').map(s => s.trim()).filter(s => s);
-            sprintsData[activeNodeIndex].meetings.push({
+            const meeting = {
                 id: 'm_' + Date.now(), title, time,
                 link: document.getElementById('meet-link').value.trim(),
                 attendees: attendeesList,
                 agenda: document.getElementById('meet-agenda').value.trim(),
                 momLink: ""
-            });
+            };
+            
+            sprintsData[activeNodeIndex].meetings.push(meeting);
             saveState(); updateDashboard(activeNodeIndex); closeMeetingModal();
+            
+            // Sync to API
+            await addMeetingToAPI(activeNodeIndex, meeting);
         });
 
         const detailModal = document.getElementById('meeting-detail-modal');
@@ -970,7 +1112,9 @@
             if(meet) { meet.momLink = value.trim(); saveState(); renderMeetingsList(sprintIndex); }
         };
 
-        // --- GLOBAL DOCUMENT TREE ---
+        // =============================================
+        // GLOBAL DOCUMENT TREE
+        // =============================================
         function findDocNode(nodes, id) {
             for (let i = 0; i < nodes.length; i++) {
                 if (nodes[i].id === id) return { node: nodes[i], parentArray: nodes, index: i };
@@ -1000,7 +1144,6 @@
                             ${node.children && node.children.length ? `<svg class="w-4 h-4 transform ${node.isOpen ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>` : ''}
                         </button>
                         <svg class="w-4 h-4 ${(node.children && node.children.length) ? 'text-emerald-500' : 'text-slate-400'} shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${(node.children && node.children.length) ? 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' : 'M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z'}"></path></svg>
-                        
                         <div class="flex items-center flex-1 gap-3 ml-2 min-w-0">
                             <input type="text" value="${nodeNameText}" title="${nodeNamePlain}" class="bg-transparent border-b border-transparent hover:border-slate-600 focus:border-emerald-500 focus:outline-none text-sm text-slate-200 font-medium px-1 w-64 truncate" onblur="updateDocInfo('${node.id}', 'name', this.value)">
                             <input type="text" value="${node.link}" title="${node.link}" class="bg-slate-800/50 border border-slate-700/50 focus:border-emerald-500 rounded px-2 text-xs text-slate-400 w-48 truncate" placeholder="${TRANSLATIONS[currentLang].pasteLink}" onblur="updateDocInfo('${node.id}', 'link', this.value)">
@@ -1038,15 +1181,31 @@
             if (res && res.node.children.length) { res.node.isOpen = !res.node.isOpen; saveState(); renderDocumentTree(); }
         }
 
-        // --- INIT ---
-        loadState(); 
-        updateStaticUI();
-        renderNodes();
-        updateDashboard(activeNodeIndex);
-        renderDocumentTree();
+        // =============================================
+        // INITIALIZATION
+        // =============================================
+        async function initApp() {
+            // Load local cache first
+            loadState();
+            
+            // Then sync with API
+            await loadFromAPI();
+            
+            // Render UI
+            updateStaticUI();
+            renderNodes();
+            updateDashboard(activeNodeIndex);
+            renderDocumentTree();
+            
+            // Calculate timeline
+            setTimeout(calculateTimelineProgress, 100);
+            
+            // Hide loading overlay
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
         
-        // Timeout nhẹ để đảm bảo DOM render xong trước khi set line
-        setTimeout(calculateTimelineProgress, 100);
+        // Start app
+        initApp();
     </script>
 </body>
 </html>
