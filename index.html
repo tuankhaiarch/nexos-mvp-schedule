@@ -265,6 +265,7 @@
             </div>
             <div class="p-5 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/50 rounded-b-xl">
                 <button onclick="closeMeetingDetailModal()" class="px-5 py-2.5 rounded-lg text-sm font-bold bg-slate-700 text-white hover:bg-slate-600" data-i18n="closeBtn">Đóng</button>
+                <button id="edit-meeting-btn" class="px-5 py-2.5 rounded-lg text-sm font-bold bg-purple-600 text-white hover:bg-purple-500 shadow-lg shadow-purple-500/30" data-i18n="editBtn">Sửa</button>
             </div>
         </div>
     </div>
@@ -405,7 +406,39 @@
             const result = await apiGet('getAllData');
             
             if (result.success && result.data) {
-                // Merge API data with local structure
+                // Load milestones dates
+                if (result.data.milestones && Array.isArray(result.data.milestones)) {
+                    result.data.milestones.forEach(m => {
+                        const idx = m.id - 1;
+                        if (idx >= 0 && idx < sprintsData.length && m.date) {
+                            sprintsData[idx].date = m.date;
+                        }
+                    });
+                }
+                
+                // Load tasks
+                if (result.data.tasks && Array.isArray(result.data.tasks)) {
+                    result.data.tasks.forEach(t => {
+                        const idx = t.milestone_id - 1;
+                        if (idx >= 0 && idx < sprintsData.length) {
+                            if (t.text_vi || t.text_en) {
+                                sprintsData[idx].tasks[t.index] = { vi: t.text_vi, en: t.text_en };
+                            }
+                        }
+                    });
+                }
+                
+                // Load tools
+                if (result.data.tools && Array.isArray(result.data.tools)) {
+                    result.data.tools.forEach(t => {
+                        const idx = t.milestone_id - 1;
+                        if (idx >= 0 && idx < sprintsData.length) {
+                            sprintsData[idx].tools[t.index] = t.text;
+                        }
+                    });
+                }
+                
+                // Load deliverables
                 if (result.data.deliverables && Array.isArray(result.data.deliverables)) {
                     result.data.deliverables.forEach(d => {
                         const sprintIndex = d.milestone_id - 1;
@@ -420,11 +453,11 @@
                     });
                 }
                 
+                // Load meetings
                 if (result.data.meetings && Array.isArray(result.data.meetings)) {
                     result.data.meetings.forEach(m => {
                         const sprintIndex = m.milestone_id - 1;
                         if (sprintIndex >= 0 && sprintIndex < sprintsData.length) {
-                            // Check if meeting already exists
                             const exists = sprintsData[sprintIndex].meetings.find(item => item.id === m.id);
                             if (!exists) {
                                 sprintsData[sprintIndex].meetings.push({
@@ -436,9 +469,45 @@
                                     agenda: m.agenda || '',
                                     momLink: m.mom_link || ''
                                 });
+                            } else {
+                                // Update existing
+                                exists.title = m.title;
+                                exists.time = m.time;
+                                exists.link = m.link || '';
+                                exists.attendees = m.attendees ? m.attendees.split(',') : [];
+                                exists.agenda = m.agenda || '';
+                                exists.momLink = m.mom_link || '';
                             }
                         }
                     });
+                }
+                
+                // Load documents
+                if (result.data.documents && Array.isArray(result.data.documents) && result.data.documents.length > 0) {
+                    // Build tree structure
+                    const docMap = {};
+                    result.data.documents.forEach(d => {
+                        docMap[d.id] = {
+                            id: d.id,
+                            name: { vi: d.name_vi, en: d.name_en || d.name_vi },
+                            link: d.link || '',
+                            isOpen: d.is_open,
+                            children: []
+                        };
+                    });
+                    
+                    const roots = [];
+                    result.data.documents.forEach(d => {
+                        if (d.parent_id && docMap[d.parent_id]) {
+                            docMap[d.parent_id].children.push(docMap[d.id]);
+                        } else {
+                            roots.push(docMap[d.id]);
+                        }
+                    });
+                    
+                    if (roots.length > 0) {
+                        documentTreeData = roots;
+                    }
                 }
                 
                 showSyncStatus('synced', 'Đã đồng bộ');
@@ -447,6 +516,62 @@
                 showSyncStatus('error', 'Lỗi đồng bộ');
                 return false;
             }
+        }
+        
+        // Save milestone date to API
+        async function saveMilestoneToAPI(milestoneId, date) {
+            showSyncStatus('syncing', 'Đang lưu...');
+            const result = apiPostSimple('updateMilestone', { id: milestoneId, date: date });
+            showSyncStatus('synced', 'Đã lưu');
+            return result;
+        }
+        
+        // Save tasks to API
+        async function saveTasksToAPI(sprintIndex) {
+            showSyncStatus('syncing', 'Đang lưu tasks...');
+            const result = apiPostSimple('updateTasks', {
+                milestone_id: sprintIndex + 1,
+                tasks: JSON.stringify(sprintsData[sprintIndex].tasks)
+            });
+            showSyncStatus('synced', 'Đã lưu');
+            return result;
+        }
+        
+        // Save tools to API
+        async function saveToolsToAPI(sprintIndex) {
+            showSyncStatus('syncing', 'Đang lưu tools...');
+            const result = apiPostSimple('updateTools', {
+                milestone_id: sprintIndex + 1,
+                tools: JSON.stringify(sprintsData[sprintIndex].tools)
+            });
+            showSyncStatus('synced', 'Đã lưu');
+            return result;
+        }
+        
+        // Save documents to API
+        async function saveDocumentsToAPI() {
+            showSyncStatus('syncing', 'Đang lưu tài liệu...');
+            const result = apiPostSimple('saveDocuments', {
+                documents: JSON.stringify(documentTreeData)
+            });
+            showSyncStatus('synced', 'Đã lưu');
+            return result;
+        }
+        
+        // Update meeting to API
+        async function updateMeetingToAPI(meeting) {
+            showSyncStatus('syncing', 'Đang cập nhật...');
+            const result = apiPostSimple('updateMeeting', {
+                id: meeting.id,
+                title: meeting.title,
+                time: meeting.time,
+                link: meeting.link,
+                attendees: meeting.attendees.join(','),
+                agenda: meeting.agenda,
+                mom_link: meeting.momLink
+            });
+            showSyncStatus('synced', 'Đã cập nhật');
+            return result;
         }
         
         // Save deliverable to API
@@ -843,6 +968,8 @@
                 saveState(); 
                 renderNodes(); 
                 updateDashboard(activeNodeIndex);
+                // Save to API
+                saveMilestoneToAPI(activeNodeIndex + 1, newDate);
             }
         }
 
@@ -896,6 +1023,9 @@
             if(val) {
                 sprintsData[activeNodeIndex][type].push(val);
                 saveState(); updateDashboard(activeNodeIndex);
+                // Save to API
+                if(type === 'tasks') saveTasksToAPI(activeNodeIndex);
+                else if(type === 'tools') saveToolsToAPI(activeNodeIndex);
             }
         }
 
@@ -905,6 +1035,9 @@
             if(val && val !== current) {
                 sprintsData[sprintIndex][type][idx] = val;
                 saveState(); updateDashboard(sprintIndex);
+                // Save to API
+                if(type === 'tasks') saveTasksToAPI(sprintIndex);
+                else if(type === 'tools') saveToolsToAPI(sprintIndex);
             }
         }
 
@@ -912,6 +1045,9 @@
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             sprintsData[sprintIndex][type].splice(idx, 1);
             saveState(); updateDashboard(sprintIndex);
+            // Save to API
+            if(type === 'tasks') saveTasksToAPI(sprintIndex);
+            else if(type === 'tools') saveToolsToAPI(sprintIndex);
         }
 
         // =============================================
@@ -1143,26 +1279,59 @@
             if(!title || !time) { alert(TRANSLATIONS[currentLang].alertMeet); return; }
 
             const attendeesList = document.getElementById('meet-attendees').value.trim().split(',').map(s => s.trim()).filter(s => s);
-            const meeting = {
-                id: 'm_' + Date.now(), title, time,
-                link: document.getElementById('meet-link').value.trim(),
-                attendees: attendeesList,
-                agenda: document.getElementById('meet-agenda').value.trim(),
-                momLink: ""
-            };
             
-            sprintsData[activeNodeIndex].meetings.push(meeting);
-            saveState(); updateDashboard(activeNodeIndex); closeMeetingModal();
+            // Check if editing existing meeting
+            if(currentEditingMeeting) {
+                const { sprintIndex, meetId, meet } = currentEditingMeeting;
+                // Update existing meeting
+                meet.title = title;
+                meet.time = time;
+                meet.link = document.getElementById('meet-link').value.trim();
+                meet.attendees = attendeesList;
+                meet.agenda = document.getElementById('meet-agenda').value.trim();
+                
+                saveState(); 
+                updateDashboard(sprintIndex); 
+                closeMeetingModal();
+                
+                // Sync to API
+                await updateMeetingToAPI(meet);
+                currentEditingMeeting = null;
+            } else {
+                // Create new meeting
+                const meeting = {
+                    id: 'm_' + Date.now(), title, time,
+                    link: document.getElementById('meet-link').value.trim(),
+                    attendees: attendeesList,
+                    agenda: document.getElementById('meet-agenda').value.trim(),
+                    momLink: ""
+                };
+                
+                sprintsData[activeNodeIndex].meetings.push(meeting);
+                saveState(); updateDashboard(activeNodeIndex); closeMeetingModal();
+                
+                // Sync to API
+                await addMeetingToAPI(activeNodeIndex, meeting);
+            }
             
-            // Sync to API
-            await addMeetingToAPI(activeNodeIndex, meeting);
+            // Clear form
+            document.getElementById('meet-title').value = '';
+            document.getElementById('meet-time').value = '';
+            document.getElementById('meet-link').value = '';
+            document.getElementById('meet-attendees').value = '';
+            document.getElementById('meet-agenda').value = '';
         });
 
         const detailModal = document.getElementById('meeting-detail-modal');
+        let currentEditingMeeting = null; // Track meeting being edited
+        
         window.viewMeetingDetails = function(sprintIndex, meetId) {
             const meet = sprintsData[sprintIndex].meetings.find(m => m.id === meetId);
             if(!meet) return;
-
+            
+            // Store for editing
+            currentEditingMeeting = { sprintIndex, meetId, meet };
+            
             document.getElementById('detail-meet-title').textContent = meet.title;
             const dObj = new Date(meet.time);
             document.getElementById('detail-meet-time').textContent = dObj.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
@@ -1189,8 +1358,31 @@
         }
         window.saveMomLink = function(sprintIndex, meetId, value) {
             const meet = sprintsData[sprintIndex].meetings.find(m => m.id === meetId);
-            if(meet) { meet.momLink = value.trim(); saveState(); renderMeetingsList(sprintIndex); }
+            if(meet) { meet.momLink = value.trim(); saveState(); renderMeetingsList(sprintIndex); updateMeetingToAPI(meet); }
         };
+        
+        // Edit meeting - open modal with existing data
+        window.openEditMeetingModal = function() {
+            if(!currentEditingMeeting) return;
+            const { sprintIndex, meet } = currentEditingMeeting;
+            
+            // Fill the form with existing data
+            document.getElementById('meet-title').value = meet.title || '';
+            document.getElementById('meet-time').value = meet.time || '';
+            document.getElementById('meet-link').value = meet.link || '';
+            document.getElementById('meet-attendees').value = (meet.attendees || []).join(', ');
+            document.getElementById('meet-agenda').value = meet.agenda || '';
+            
+            // Close detail modal and open edit modal
+            closeMeetingDetailModal();
+            setTimeout(() => {
+                meetModal.classList.remove('hidden');
+                setTimeout(() => meetModal.classList.remove('opacity-0'), 10);
+            }, 300);
+        };
+        
+        // Add click handler for edit button
+        document.getElementById('edit-meeting-btn').addEventListener('click', openEditMeetingModal);
 
         // =============================================
         // GLOBAL DOCUMENT TREE
@@ -1240,21 +1432,35 @@
         }
 
         function addRootDocument() {
-            documentTreeData.push({ id: 'doc_' + Date.now(), name: 'Tài liệu mới', link: '', isOpen: true, children: [] });
+            documentTreeData.push({ id: 'doc_' + Date.now(), name: { vi: 'Tài liệu mới', en: 'New Document' }, link: '', isOpen: true, children: [] });
             saveState(); renderDocumentTree();
+            saveDocumentsToAPI();
         }
         function addChildDocument(parentId) {
             const res = findDocNode(documentTreeData, parentId);
-            if (res) { res.node.children.push({ id: 'doc_' + Date.now(), name: 'Mục con mới', link: '', isOpen: true, children: [] }); res.node.isOpen = true; saveState(); renderDocumentTree(); }
+            if (res) { res.node.children.push({ id: 'doc_' + Date.now(), name: { vi: 'Mục con mới', en: 'New Item' }, link: '', isOpen: true, children: [] }); res.node.isOpen = true; saveState(); renderDocumentTree(); saveDocumentsToAPI(); }
         }
         function updateDocInfo(id, field, value) {
             const res = findDocNode(documentTreeData, id);
-            if (res && t(res.node[field]) !== value.trim()) { res.node[field] = value.trim(); saveState(); renderDocumentTree(); }
+            if (res) {
+                const currentValue = res.node[field];
+                const currentText = typeof currentValue === 'object' ? t(currentValue) : currentValue;
+                if (currentText !== value.trim()) {
+                    // Update as i18n object for name field
+                    if (field === 'name') {
+                        res.node.name = { vi: value.trim(), en: value.trim() };
+                    } else {
+                        res.node[field] = value.trim();
+                    }
+                    saveState(); renderDocumentTree();
+                    saveDocumentsToAPI();
+                }
+            }
         }
         function deleteDocument(id) {
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             const res = findDocNode(documentTreeData, id);
-            if (res) { res.parentArray.splice(res.index, 1); saveState(); renderDocumentTree(); }
+            if (res) { res.parentArray.splice(res.index, 1); saveState(); renderDocumentTree(); saveDocumentsToAPI(); }
         }
         function toggleDocFolder(id) {
             const res = findDocNode(documentTreeData, id);
