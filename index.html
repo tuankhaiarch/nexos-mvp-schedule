@@ -409,7 +409,8 @@
                 
                 // Load deliverables
                 if (result.data.deliverables && Array.isArray(result.data.deliverables)) {
-                    result.data.deliverables.forEach(d => {
+                    console.log('📦 Loading deliverables from API:', result.data.deliverables.length, 'items');
+                    result.data.deliverables.forEach((d, idx) => {
                         // Handle both API formats: "Milestone ID" or "milestone_id"
                         const milestoneId = d['Milestone ID'] || d.milestone_id;
                         const deliverableId = d['Deliverable ID'] || d.id;
@@ -418,19 +419,32 @@
                         const notes = d['Notes'] || d.notes;
                         
                         const sprintIndex = milestoneId - 1;
+                        console.log(`  [${idx}] Milestone ID: ${milestoneId}, Deliverable ID: ${deliverableId}, Status: ${status}, sprintIndex: ${sprintIndex}`);
+                        
                         if (sprintIndex >= 0 && sprintIndex < sprintsData.length) {
                             const deliv = sprintsData[sprintIndex].deliverables.find(item => item.id === deliverableId);
                             if (deliv) {
+                                console.log(`    ✓ Found deliverable ${deliverableId}, updating status to: ${status}`);
                                 deliv.status = status || 'open';
                                 deliv.link = link;
                                 try {
                                     deliv.notes = notes ? (typeof notes === 'string' ? JSON.parse(notes) : notes) : [];
                                 } catch (e) {
-                                    deliv.notes = [];
+                                    // Notes might be a URL string, not JSON
+                                    if (typeof notes === 'string' && notes.startsWith('http')) {
+                                        deliv.notes = [{ content: notes, is_resolved: false, date: new Date().toISOString() }];
+                                    } else {
+                                        deliv.notes = [];
+                                    }
                                 }
+                            } else {
+                                console.warn(`    ✗ Deliverable ${deliverableId} not found in sprint ${sprintIndex}`);
                             }
+                        } else {
+                            console.warn(`    ✗ Invalid sprintIndex: ${sprintIndex} for milestone ${milestoneId}`);
                         }
                     });
+                    console.log('✅ Deliverables loaded from API');
                 }
                 
                 // Load meetings
