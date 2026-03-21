@@ -410,13 +410,24 @@
                 // Load deliverables
                 if (result.data.deliverables && Array.isArray(result.data.deliverables)) {
                     result.data.deliverables.forEach(d => {
-                        const sprintIndex = d.milestone_id - 1;
+                        // Handle both API formats: "Milestone ID" or "milestone_id"
+                        const milestoneId = d['Milestone ID'] || d.milestone_id;
+                        const deliverableId = d['Deliverable ID'] || d.id;
+                        const status = d['Status'] || d.status;
+                        const link = d['Link'] || d.link || '';
+                        const notes = d['Notes'] || d.notes;
+                        
+                        const sprintIndex = milestoneId - 1;
                         if (sprintIndex >= 0 && sprintIndex < sprintsData.length) {
-                            const deliv = sprintsData[sprintIndex].deliverables.find(item => item.id === d.id);
+                            const deliv = sprintsData[sprintIndex].deliverables.find(item => item.id === deliverableId);
                             if (deliv) {
-                                deliv.status = d.status || 'open';
-                                deliv.link = d.link || '';
-                                deliv.notes = d.notes ? JSON.parse(d.notes) : [];
+                                deliv.status = status || 'open';
+                                deliv.link = link;
+                                try {
+                                    deliv.notes = notes ? (typeof notes === 'string' ? JSON.parse(notes) : notes) : [];
+                                } catch (e) {
+                                    deliv.notes = [];
+                                }
                             }
                         }
                     });
@@ -424,29 +435,22 @@
                 
                 // Load meetings
                 if (result.data.meetings && Array.isArray(result.data.meetings)) {
+                    meetingsData = []; // Reset and reload from API
                     result.data.meetings.forEach(m => {
-                        const sprintIndex = m.milestone_id - 1;
-                        if (sprintIndex >= 0 && sprintIndex < sprintsData.length) {
-                            const exists = sprintsData[sprintIndex].meetings.find(item => item.id === m.id);
-                            if (!exists) {
-                                sprintsData[sprintIndex].meetings.push({
-                                    id: m.id,
-                                    title: m.title,
-                                    time: m.time,
-                                    link: m.link || '',
-                                    attendees: m.attendees ? m.attendees.split(',') : [],
-                                    agenda: m.agenda || '',
-                                    momLink: m.mom_link || ''
-                                });
-                            } else {
-                                exists.title = m.title;
-                                exists.time = m.time;
-                                exists.link = m.link || '';
-                                exists.attendees = m.attendees ? m.attendees.split(',') : [];
-                                exists.agenda = m.agenda || '';
-                                exists.momLink = m.mom_link || '';
-                            }
-                        }
+                        // Handle both API formats
+                        const meetingObj = {
+                            id: m.ID || m.id,
+                            title: m.Title || m.title,
+                            date: m.Date || m.date,
+                            time: m.Time || m.time,
+                            duration: m.Duration || m.duration,
+                            type: m.Type || m.type || 'online',
+                            participants: m.Participants || m.participants || '',
+                            notes: m.Notes || m.notes || '',
+                            meetLink: m.MeetLink || m.meetLink || m.meet_link || '',
+                            createdAt: m.createdAt || new Date().toISOString()
+                        };
+                        meetingsData.push(meetingObj);
                     });
                 }
                 
