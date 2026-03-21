@@ -18,6 +18,15 @@
         .sync-indicator.syncing { background: #1e3a5f; color: #60a5fa; }
         .sync-indicator.synced { background: #134e4a; color: #2dd4bf; }
         .sync-indicator.error { background: #7f1d1d; color: #fca5a5; }
+        
+        /* Drag and drop styles */
+        .doc-item { transition: all 0.2s ease; }
+        .doc-item.dragging { opacity: 0.5; background: #1e3a5f !important; }
+        .doc-item.drag-over { border-top: 2px solid #10b981; margin-top: -1px; }
+        .doc-item.drag-over-bottom { border-bottom: 2px solid #10b981; margin-bottom: -1px; }
+        .drag-handle { cursor: grab; opacity: 0.3; transition: opacity 0.2s; }
+        .drag-handle:hover { opacity: 1; }
+        .drag-handle:active { cursor: grabbing; }
     </style>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30 pb-24 relative overflow-x-hidden">
@@ -162,6 +171,10 @@
                     <span data-i18n="addDocBtn">Thêm Thư mục/Tài liệu</span>
                 </button>
             </div>
+            <div class="text-xs text-slate-500 mb-2 flex items-center gap-2">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path></svg>
+                Kéo thả để sắp xếp vị trí tài liệu
+            </div>
             <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-x-auto custom-scrollbar">
                 <div id="document-tree-root" class="min-w-[600px]"></div>
             </div>
@@ -191,7 +204,7 @@
             <div class="p-5 border-b border-slate-700 flex justify-between items-center">
                 <div class="flex items-center gap-3">
                     <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                    <h4 class="font-bold text-white text-lg" data-i18n="createMeetTitle">Tạo Cuộc Họp Mới</h4>
+                    <h4 class="font-bold text-white text-lg" id="meeting-modal-title" data-i18n="createMeetTitle">Tạo Cuộc Họp Mới</h4>
                 </div>
                 <button onclick="closeMeetingModal()" class="text-slate-400 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
             </div>
@@ -275,7 +288,7 @@
         // API CONFIGURATION - Google Sheets Backend
         // =============================================
         const API_URL = 'https://script.google.com/macros/s/AKfycbwzA1LOLalLOFflateNNs-rKeikU4ywRtSzH4kPK335B8r22QJ0K3ullhkvnhJyIJg7XA/exec';
-        const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v5';
+        const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v6';
         
         // Sync status management
         let isSyncing = false;
@@ -314,74 +327,10 @@
             });
         }
         
-        // POST via hidden form to bypass CORS
-        function apiPost(action, data = {}) {
-            return new Promise((resolve) => {
-                const callbackName = 'jsonp_callback_' + Date.now();
-                const iframeName = 'submit_iframe_' + Date.now();
-                
-                // Create hidden iframe
-                let iframe = document.createElement('iframe');
-                iframe.name = iframeName;
-                iframe.style.display = 'none';
-                document.body.appendChild(iframe);
-                
-                // Create form
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = API_URL + '?callback=' + callbackName;
-                form.target = iframeName;
-                form.enctype = 'application/x-www-form-urlencoded';
-                
-                const payload = { action, ...data };
-                Object.keys(payload).forEach(key => {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = key;
-                    input.value = typeof payload[key] === 'object' ? JSON.stringify(payload[key]) : payload[key];
-                    form.appendChild(input);
-                });
-                
-                document.body.appendChild(form);
-                
-                // Setup callback
-                window[callbackName] = function(response) {
-                    delete window[callbackName];
-                    document.body.removeChild(form);
-                    setTimeout(() => document.body.removeChild(iframe), 1000);
-                    resolve(response);
-                };
-                
-                // Handle iframe load
-                iframe.onload = function() {
-                    try {
-                        const doc = iframe.contentDocument || iframe.contentWindow.document;
-                        const text = doc.body.innerText;
-                        if (text && text.includes(callbackName)) {
-                            eval(text);
-                        }
-                    } catch(e) {
-                        // Cross-origin, assume success
-                        resolve({ success: true, message: 'Request sent' });
-                    }
-                };
-                
-                form.submit();
-                
-                // Timeout fallback
-                setTimeout(() => {
-                    if (window[callbackName]) {
-                        delete window[callbackName];
-                        document.body.removeChild(form);
-                        resolve({ success: true, message: 'Request sent (timeout)' });
-                    }
-                }, 5000);
-            });
-        }
-        
-        // Simple POST using redirect (works with Google Apps Script)
+        // Simple POST using fetch with no-cors mode
         async function apiPostSimple(action, data = {}) {
             try {
+                showSyncStatus('syncing', 'Đang đồng bộ...');
                 const formData = new FormData();
                 formData.append('action', action);
                 Object.keys(data).forEach(key => {
@@ -393,16 +342,18 @@
                     body: formData,
                     mode: 'no-cors'
                 });
+                showSyncStatus('synced', 'Đã đồng bộ');
                 return { success: true, message: 'Request sent' };
             } catch (error) {
                 console.error('API POST Error:', error);
+                showSyncStatus('error', 'Lỗi đồng bộ');
                 return { success: false, error: error.message };
             }
         }
         
         // Load data from API
         async function loadFromAPI() {
-            showSyncStatus('syncing', 'Đang đồng bộ...');
+            showSyncStatus('syncing', 'Đang tải dữ liệu...');
             const result = await apiGet('getAllData');
             
             if (result.success && result.data) {
@@ -470,7 +421,6 @@
                                     momLink: m.mom_link || ''
                                 });
                             } else {
-                                // Update existing
                                 exists.title = m.title;
                                 exists.time = m.time;
                                 exists.link = m.link || '';
@@ -484,7 +434,6 @@
                 
                 // Load documents
                 if (result.data.documents && Array.isArray(result.data.documents) && result.data.documents.length > 0) {
-                    // Build tree structure
                     const docMap = {};
                     result.data.documents.forEach(d => {
                         docMap[d.id] = {
@@ -492,7 +441,8 @@
                             name: { vi: d.name_vi, en: d.name_en || d.name_vi },
                             link: d.link || '',
                             isOpen: d.is_open,
-                            children: []
+                            children: [],
+                            order: d.order || 0
                         };
                     });
                     
@@ -505,6 +455,9 @@
                         }
                     });
                     
+                    // Sort by order
+                    roots.sort((a, b) => (a.order || 0) - (b.order || 0));
+                    
                     if (roots.length > 0) {
                         documentTreeData = roots;
                     }
@@ -513,93 +466,50 @@
                 showSyncStatus('synced', 'Đã đồng bộ');
                 return true;
             } else {
-                showSyncStatus('error', 'Lỗi đồng bộ');
+                showSyncStatus('error', 'Lỗi tải dữ liệu');
                 return false;
             }
         }
         
-        // Save milestone date to API
+        // =============================================
+        // API SAVE FUNCTIONS
+        // =============================================
+        
         async function saveMilestoneToAPI(milestoneId, date) {
-            showSyncStatus('syncing', 'Đang lưu...');
-            const result = apiPostSimple('updateMilestone', { id: milestoneId, date: date });
-            showSyncStatus('synced', 'Đã lưu');
-            return result;
+            return apiPostSimple('updateMilestone', { id: milestoneId, date: date });
         }
         
-        // Save tasks to API
         async function saveTasksToAPI(sprintIndex) {
-            showSyncStatus('syncing', 'Đang lưu tasks...');
-            const result = apiPostSimple('updateTasks', {
+            return apiPostSimple('updateTasks', {
                 milestone_id: sprintIndex + 1,
                 tasks: JSON.stringify(sprintsData[sprintIndex].tasks)
             });
-            showSyncStatus('synced', 'Đã lưu');
-            return result;
         }
         
-        // Save tools to API
         async function saveToolsToAPI(sprintIndex) {
-            showSyncStatus('syncing', 'Đang lưu tools...');
-            const result = apiPostSimple('updateTools', {
+            return apiPostSimple('updateTools', {
                 milestone_id: sprintIndex + 1,
                 tools: JSON.stringify(sprintsData[sprintIndex].tools)
             });
-            showSyncStatus('synced', 'Đã lưu');
-            return result;
         }
         
-        // Save documents to API
-        async function saveDocumentsToAPI() {
-            showSyncStatus('syncing', 'Đang lưu tài liệu...');
-            const result = apiPostSimple('saveDocuments', {
-                documents: JSON.stringify(documentTreeData)
-            });
-            showSyncStatus('synced', 'Đã lưu');
-            return result;
-        }
-        
-        // Update meeting to API
-        async function updateMeetingToAPI(meeting) {
-            showSyncStatus('syncing', 'Đang cập nhật...');
-            const result = apiPostSimple('updateMeeting', {
-                id: meeting.id,
-                title: meeting.title,
-                time: meeting.time,
-                link: meeting.link,
-                attendees: meeting.attendees.join(','),
-                agenda: meeting.agenda,
-                mom_link: meeting.momLink
-            });
-            showSyncStatus('synced', 'Đã cập nhật');
-            return result;
-        }
-        
-        // Save deliverable to API
         async function saveDeliverableToAPI(sprintIndex, delivIndex) {
             const deliv = sprintsData[sprintIndex].deliverables[delivIndex];
-            showSyncStatus('syncing', 'Đang lưu...');
-            
-            const result = apiPostSimple('updateDeliverable', {
+            return apiPostSimple('updateDeliverable', {
                 id: deliv.id,
                 milestone_id: sprintIndex + 1,
                 status: deliv.status,
                 link: deliv.link,
                 notes: JSON.stringify(deliv.notes)
             });
-            
-            if (result.success) {
-                showSyncStatus('synced', 'Đã lưu');
-            } else {
-                showSyncStatus('error', 'Lỗi lưu');
-            }
-            return result;
         }
         
-        // Add meeting to API
+        async function deleteDeliverableFromAPI(delivId) {
+            return apiPostSimple('deleteDeliverable', { id: delivId });
+        }
+        
         async function addMeetingToAPI(sprintIndex, meeting) {
-            showSyncStatus('syncing', 'Đang tạo meeting...');
-            
-            const result = apiPostSimple('addMeeting', {
+            return apiPostSimple('addMeeting', {
                 id: meeting.id,
                 milestone_id: sprintIndex + 1,
                 title: meeting.title,
@@ -608,27 +518,32 @@
                 attendees: meeting.attendees.join(','),
                 agenda: meeting.agenda
             });
-            
-            if (result.success) {
-                showSyncStatus('synced', 'Đã tạo meeting');
-            } else {
-                showSyncStatus('error', 'Lỗi tạo meeting');
-            }
-            return result;
         }
         
-        // Delete meeting from API
-        async function deleteMeetingFromAPI(meetingId) {
-            showSyncStatus('syncing', 'Đang xóa...');
-            
-            const result = apiPostSimple('deleteMeeting', { id: meetingId });
-            
-            if (result.success) {
-                showSyncStatus('synced', 'Đã xóa');
-            } else {
-                showSyncStatus('error', 'Lỗi xóa');
-            }
-            return result;
+        async function updateMeetingToAPI(meeting) {
+            return apiPostSimple('updateMeeting', {
+                id: meeting.id,
+                title: meeting.title,
+                time: meeting.time,
+                link: meeting.link,
+                attendees: meeting.attendees.join(','),
+                agenda: meeting.agenda,
+                mom_link: meeting.momLink
+            });
+        }
+        
+        async function deleteMeetingFromAPI(meetId) {
+            return apiPostSimple('deleteMeeting', { id: meetId });
+        }
+        
+        async function saveDocumentsToAPI() {
+            return apiPostSimple('saveDocuments', {
+                documents: JSON.stringify(documentTreeData)
+            });
+        }
+        
+        async function deleteDocumentFromAPI(docId) {
+            return apiPostSimple('deleteDocument', { id: docId });
         }
 
         // =============================================
@@ -645,11 +560,11 @@
                 meetTitle: "Lịch họp & Sự kiện", createMeetBtn: "Tạo lịch hẹn",
                 docRepoTitle: "Kho Tài liệu Dự án Chung", addDocBtn: "Thêm Thư mục/Tài liệu",
                 addNoteTitle: "Thêm Ghi chú", cancelBtn: "Hủy", saveNoteBtn: "Lưu ghi chú", notePlaceholder: "Nhập nội dung...",
-                createMeetTitle: "Tạo Cuộc Họp Mới", meetNameLabel: "Tiêu đề cuộc họp", meetNamePlaceholder: "VD: Báo cáo Prototype",
+                createMeetTitle: "Tạo Cuộc Họp Mới", editMeetTitle: "Sửa Cuộc Họp", meetNameLabel: "Tiêu đề cuộc họp", meetNamePlaceholder: "VD: Báo cáo Prototype",
                 meetTimeLabel: "Thời gian", meetLinkLabel: "Link Tham Gia", meetAttendeesLabel: "Người tham dự (email, dấu phẩy)",
                 meetAttendeesPlaceholder: "VD: ceo@nexos.vn", meetAgendaLabel: "Agenda", meetAgendaPlaceholder: "Nội dung cuộc họp...",
                 saveMeetBtn: "Lưu Lịch Họp", meetDetailTitle: "Chi tiết Cuộc Họp", meetAttendeesLabel2: "Người tham dự",
-                meetJoinLink: "Link Tham gia", meetMomLink: "Biên bản (MOM)", closeBtn: "Đóng",
+                meetJoinLink: "Link Tham gia", meetMomLink: "Biên bản (MOM)", closeBtn: "Đóng", editBtn: "Sửa",
                 noMeet: "Chưa có lịch họp nào.", noDoc: "Chưa có tài liệu nào.", noNote: "Chưa có ghi chú nào.",
                 markDone: "Done", addNoteNew: "Thêm Ghi chú mới", pasteLink: "Dán link tài liệu...", pasteMom: "Dán link biên bản...",
                 folderName: "Nhập tên...", noLink: "Không có Link", join: "Tham gia", detail: "Chi tiết", viewMom: "Xem Biên bản",
@@ -667,11 +582,11 @@
                 meetTitle: "Meetings & Events", createMeetBtn: "Schedule Meeting",
                 docRepoTitle: "Global Document Repository", addDocBtn: "Add Folder / Doc",
                 addNoteTitle: "Add Note", cancelBtn: "Cancel", saveNoteBtn: "Save", notePlaceholder: "Enter notes...",
-                createMeetTitle: "New Meeting", meetNameLabel: "Title", meetNamePlaceholder: "E.g. Review",
+                createMeetTitle: "New Meeting", editMeetTitle: "Edit Meeting", meetNameLabel: "Title", meetNamePlaceholder: "E.g. Review",
                 meetTimeLabel: "Time", meetLinkLabel: "Join Link", meetAttendeesLabel: "Attendees (emails, comma-separated)",
                 meetAttendeesPlaceholder: "E.g. ceo@nexos.vn", meetAgendaLabel: "Agenda", meetAgendaPlaceholder: "Meeting agenda...",
                 saveMeetBtn: "Save Meeting", meetDetailTitle: "Meeting Details", meetAttendeesLabel2: "Attendees",
-                meetJoinLink: "Join Link", meetMomLink: "Minutes (MOM)", closeBtn: "Close",
+                meetJoinLink: "Join Link", meetMomLink: "Minutes (MOM)", closeBtn: "Close", editBtn: "Edit",
                 noMeet: "No meetings scheduled.", noDoc: "No documents yet.", noNote: "No notes yet.",
                 markDone: "Done", addNoteNew: "Add Note", pasteLink: "Paste doc link...", pasteMom: "Paste MOM link...",
                 folderName: "Enter name...", noLink: "No Link", join: "Join", detail: "Details", viewMom: "View MOM",
@@ -968,7 +883,6 @@
                 saveState(); 
                 renderNodes(); 
                 updateDashboard(activeNodeIndex);
-                // Save to API
                 saveMilestoneToAPI(activeNodeIndex + 1, newDate);
             }
         }
@@ -1023,7 +937,6 @@
             if(val) {
                 sprintsData[activeNodeIndex][type].push(val);
                 saveState(); updateDashboard(activeNodeIndex);
-                // Save to API
                 if(type === 'tasks') saveTasksToAPI(activeNodeIndex);
                 else if(type === 'tools') saveToolsToAPI(activeNodeIndex);
             }
@@ -1035,7 +948,6 @@
             if(val && val !== current) {
                 sprintsData[sprintIndex][type][idx] = val;
                 saveState(); updateDashboard(sprintIndex);
-                // Save to API
                 if(type === 'tasks') saveTasksToAPI(sprintIndex);
                 else if(type === 'tools') saveToolsToAPI(sprintIndex);
             }
@@ -1045,7 +957,6 @@
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             sprintsData[sprintIndex][type].splice(idx, 1);
             saveState(); updateDashboard(sprintIndex);
-            // Save to API
             if(type === 'tasks') saveTasksToAPI(sprintIndex);
             else if(type === 'tools') saveToolsToAPI(sprintIndex);
         }
@@ -1124,10 +1035,12 @@
         function addDeliverable() {
             const val = prompt(TRANSLATIONS[currentLang].promptDeliv);
             if(val) {
-                sprintsData[activeNodeIndex].deliverables.push({
-                    id: 'd_'+Date.now(), text: val, status: 'open', link: '', notes: []
-                });
+                const newDeliv = {
+                    id: 'd_'+Date.now(), text: { vi: val, en: val }, status: 'open', link: '', notes: []
+                };
+                sprintsData[activeNodeIndex].deliverables.push(newDeliv);
                 saveState(); updateDashboard(activeNodeIndex); renderNodes();
+                saveDeliverableToAPI(activeNodeIndex, sprintsData[activeNodeIndex].deliverables.length - 1);
             }
         }
 
@@ -1135,15 +1048,18 @@
             const current = t(sprintsData[sprintIndex].deliverables[dIdx].text);
             const val = prompt(TRANSLATIONS[currentLang].promptEdit, current);
             if(val && val !== current) {
-                sprintsData[sprintIndex].deliverables[dIdx].text = val;
+                sprintsData[sprintIndex].deliverables[dIdx].text = { vi: val, en: val };
                 saveState(); updateDashboard(sprintIndex);
+                saveDeliverableToAPI(sprintIndex, dIdx);
             }
         }
 
-        function deleteDeliverable(sprintIndex, dIdx) {
+        async function deleteDeliverable(sprintIndex, dIdx) {
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
+            const delivId = sprintsData[sprintIndex].deliverables[dIdx].id;
             sprintsData[sprintIndex].deliverables.splice(dIdx, 1);
             saveState(); updateDashboard(sprintIndex); renderNodes();
+            await deleteDeliverableFromAPI(delivId);
         }
 
         function toggleStatus(sprintIndex, delivIndex) {
@@ -1151,14 +1067,12 @@
             let currentIndex = statusKeys.indexOf(currentStatus);
             sprintsData[sprintIndex].deliverables[delivIndex].status = statusKeys[(currentIndex + 1) % statusKeys.length];
             saveState(); renderDeliverablesList(sprintIndex); renderNodes();
-            // Sync to API
             saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
         function saveLink(sprintIndex, delivIndex, value) {
             sprintsData[sprintIndex].deliverables[delivIndex].link = value.trim();
             saveState(); renderDeliverablesList(sprintIndex);
-            // Sync to API
             saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
@@ -1196,7 +1110,6 @@
                 saveState(); renderDeliverablesList(sprintIndex);
                 document.getElementById(`note-panel-${sprintIndex}-${delivIndex}`).classList.remove('hidden');
                 closeNoteModal();
-                // Sync to API
                 saveDeliverableToAPI(sprintIndex, delivIndex);
             }
         });
@@ -1205,7 +1118,6 @@
             sprintsData[sprintIndex].deliverables[delivIndex].notes[noteIndex].is_resolved = true;
             saveState(); renderDeliverablesList(sprintIndex);
             document.getElementById(`note-panel-${sprintIndex}-${delivIndex}`).classList.remove('hidden');
-            // Sync to API
             saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
@@ -1259,15 +1171,24 @@
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             sprintsData[sprintIndex].meetings = sprintsData[sprintIndex].meetings.filter(m => m.id !== meetId);
             saveState(); updateDashboard(sprintIndex);
-            // Sync to API
             await deleteMeetingFromAPI(meetId);
         }
 
         const meetModal = document.getElementById('meeting-modal');
+        let currentEditingMeeting = null;
+        
         function openMeetingModal() {
+            currentEditingMeeting = null;
+            document.getElementById('meeting-modal-title').textContent = TRANSLATIONS[currentLang].createMeetTitle;
+            document.getElementById('meet-title').value = '';
+            document.getElementById('meet-time').value = '';
+            document.getElementById('meet-link').value = '';
+            document.getElementById('meet-attendees').value = '';
+            document.getElementById('meet-agenda').value = '';
             meetModal.classList.remove('hidden');
             setTimeout(() => meetModal.classList.remove('opacity-0'), 10);
         }
+        
         function closeMeetingModal() {
             meetModal.classList.add('opacity-0');
             setTimeout(() => meetModal.classList.add('hidden'), 300);
@@ -1280,10 +1201,8 @@
 
             const attendeesList = document.getElementById('meet-attendees').value.trim().split(',').map(s => s.trim()).filter(s => s);
             
-            // Check if editing existing meeting
             if(currentEditingMeeting) {
-                const { sprintIndex, meetId, meet } = currentEditingMeeting;
-                // Update existing meeting
+                const { sprintIndex, meet } = currentEditingMeeting;
                 meet.title = title;
                 meet.time = time;
                 meet.link = document.getElementById('meet-link').value.trim();
@@ -1293,12 +1212,9 @@
                 saveState(); 
                 updateDashboard(sprintIndex); 
                 closeMeetingModal();
-                
-                // Sync to API
                 await updateMeetingToAPI(meet);
                 currentEditingMeeting = null;
             } else {
-                // Create new meeting
                 const meeting = {
                     id: 'm_' + Date.now(), title, time,
                     link: document.getElementById('meet-link').value.trim(),
@@ -1309,27 +1225,16 @@
                 
                 sprintsData[activeNodeIndex].meetings.push(meeting);
                 saveState(); updateDashboard(activeNodeIndex); closeMeetingModal();
-                
-                // Sync to API
                 await addMeetingToAPI(activeNodeIndex, meeting);
             }
-            
-            // Clear form
-            document.getElementById('meet-title').value = '';
-            document.getElementById('meet-time').value = '';
-            document.getElementById('meet-link').value = '';
-            document.getElementById('meet-attendees').value = '';
-            document.getElementById('meet-agenda').value = '';
         });
 
         const detailModal = document.getElementById('meeting-detail-modal');
-        let currentEditingMeeting = null; // Track meeting being edited
         
         window.viewMeetingDetails = function(sprintIndex, meetId) {
             const meet = sprintsData[sprintIndex].meetings.find(m => m.id === meetId);
             if(!meet) return;
             
-            // Store for editing
             currentEditingMeeting = { sprintIndex, meetId, meet };
             
             document.getElementById('detail-meet-title').textContent = meet.title;
@@ -1353,27 +1258,27 @@
             detailModal.classList.remove('hidden');
             setTimeout(() => detailModal.classList.remove('opacity-0'), 10);
         }
+        
         window.closeMeetingDetailModal = function() {
             detailModal.classList.add('opacity-0'); setTimeout(() => detailModal.classList.add('hidden'), 300);
         }
+        
         window.saveMomLink = function(sprintIndex, meetId, value) {
             const meet = sprintsData[sprintIndex].meetings.find(m => m.id === meetId);
             if(meet) { meet.momLink = value.trim(); saveState(); renderMeetingsList(sprintIndex); updateMeetingToAPI(meet); }
         };
         
-        // Edit meeting - open modal with existing data
         window.openEditMeetingModal = function() {
             if(!currentEditingMeeting) return;
-            const { sprintIndex, meet } = currentEditingMeeting;
+            const { meet } = currentEditingMeeting;
             
-            // Fill the form with existing data
+            document.getElementById('meeting-modal-title').textContent = TRANSLATIONS[currentLang].editMeetTitle;
             document.getElementById('meet-title').value = meet.title || '';
             document.getElementById('meet-time').value = meet.time || '';
             document.getElementById('meet-link').value = meet.link || '';
             document.getElementById('meet-attendees').value = (meet.attendees || []).join(', ');
             document.getElementById('meet-agenda').value = meet.agenda || '';
             
-            // Close detail modal and open edit modal
             closeMeetingDetailModal();
             setTimeout(() => {
                 meetModal.classList.remove('hidden');
@@ -1381,12 +1286,13 @@
             }, 300);
         };
         
-        // Add click handler for edit button
         document.getElementById('edit-meeting-btn').addEventListener('click', openEditMeetingModal);
 
         // =============================================
-        // GLOBAL DOCUMENT TREE
+        // GLOBAL DOCUMENT TREE WITH DRAG & DROP
         // =============================================
+        let draggedDocId = null;
+        
         function findDocNode(nodes, id) {
             for (let i = 0; i < nodes.length; i++) {
                 if (nodes[i].id === id) return { node: nodes[i], parentArray: nodes, index: i };
@@ -1402,16 +1308,29 @@
                 return;
             }
             container.innerHTML = buildTreeHTML(documentTreeData, 0);
+            setupDragAndDrop();
         }
 
         function buildTreeHTML(nodes, level) {
             let html = '';
-            nodes.forEach(node => {
+            nodes.forEach((node, idx) => {
                 const paddingLeft = level * 28 + 8;
                 const nodeNameText = t(node.name);
                 const nodeNamePlain = nodeNameText.replace(/<[^>]*>?/gm, '').replace(/"/g, '&quot;');
                 html += `
-                    <div class="flex items-center group py-1 border-b border-slate-800/50 hover:bg-slate-800/30" style="padding-left: ${paddingLeft}px;">
+                    <div class="doc-item flex items-center group py-1 border-b border-slate-800/50 hover:bg-slate-800/30" 
+                         style="padding-left: ${paddingLeft}px;" 
+                         draggable="true" 
+                         data-doc-id="${node.id}"
+                         data-level="${level}"
+                         ondragstart="handleDragStart(event, '${node.id}')"
+                         ondragend="handleDragEnd(event)"
+                         ondragover="handleDragOver(event)"
+                         ondragleave="handleDragLeave(event)"
+                         ondrop="handleDrop(event, '${node.id}')">
+                        <div class="drag-handle text-slate-500 hover:text-slate-300 w-5 h-5 flex items-center justify-center shrink-0">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg>
+                        </div>
                         <button onclick="toggleDocFolder('${node.id}')" class="text-slate-400 w-5 h-5 flex items-center justify-center shrink-0">
                             ${node.children && node.children.length ? `<svg class="w-4 h-4 transform ${node.isOpen ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>` : ''}
                         </button>
@@ -1431,22 +1350,109 @@
             return html;
         }
 
+        // Drag and Drop handlers
+        window.handleDragStart = function(e, docId) {
+            draggedDocId = docId;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', docId);
+        };
+
+        window.handleDragEnd = function(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.doc-item').forEach(el => {
+                el.classList.remove('drag-over', 'drag-over-bottom');
+            });
+            draggedDocId = null;
+        };
+
+        window.handleDragOver = function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            
+            const target = e.target.closest('.doc-item');
+            if (!target || target.dataset.docId === draggedDocId) return;
+            
+            const rect = target.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            
+            document.querySelectorAll('.doc-item').forEach(el => {
+                el.classList.remove('drag-over', 'drag-over-bottom');
+            });
+            
+            if (e.clientY < midY) {
+                target.classList.add('drag-over');
+            } else {
+                target.classList.add('drag-over-bottom');
+            }
+        };
+
+        window.handleDragLeave = function(e) {
+            const target = e.target.closest('.doc-item');
+            if (target) {
+                target.classList.remove('drag-over', 'drag-over-bottom');
+            }
+        };
+
+        window.handleDrop = function(e, targetId) {
+            e.preventDefault();
+            
+            if (!draggedDocId || draggedDocId === targetId) return;
+            
+            const draggedRes = findDocNode(documentTreeData, draggedDocId);
+            const targetRes = findDocNode(documentTreeData, targetId);
+            
+            if (!draggedRes || !targetRes) return;
+            
+            const targetEl = e.target.closest('.doc-item');
+            const rect = targetEl.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            const dropAfter = e.clientY >= midY;
+            
+            // Remove dragged item from its current position
+            const [draggedNode] = draggedRes.parentArray.splice(draggedRes.index, 1);
+            
+            if (dropAfter) {
+                // Insert after target
+                const targetIndex = targetRes.parentArray.indexOf(targetRes.node);
+                targetRes.parentArray.splice(targetIndex + 1, 0, draggedNode);
+            } else {
+                // Insert before target
+                const targetIndex = targetRes.parentArray.indexOf(targetRes.node);
+                targetRes.parentArray.splice(targetIndex, 0, draggedNode);
+            }
+            
+            saveState();
+            renderDocumentTree();
+            saveDocumentsToAPI();
+        };
+
+        function setupDragAndDrop() {
+            // Already handled by inline event handlers in buildTreeHTML
+        }
+
         function addRootDocument() {
             documentTreeData.push({ id: 'doc_' + Date.now(), name: { vi: 'Tài liệu mới', en: 'New Document' }, link: '', isOpen: true, children: [] });
             saveState(); renderDocumentTree();
             saveDocumentsToAPI();
         }
+        
         function addChildDocument(parentId) {
             const res = findDocNode(documentTreeData, parentId);
-            if (res) { res.node.children.push({ id: 'doc_' + Date.now(), name: { vi: 'Mục con mới', en: 'New Item' }, link: '', isOpen: true, children: [] }); res.node.isOpen = true; saveState(); renderDocumentTree(); saveDocumentsToAPI(); }
+            if (res) { 
+                res.node.children.push({ id: 'doc_' + Date.now(), name: { vi: 'Mục con mới', en: 'New Item' }, link: '', isOpen: true, children: [] }); 
+                res.node.isOpen = true; 
+                saveState(); renderDocumentTree(); 
+                saveDocumentsToAPI(); 
+            }
         }
+        
         function updateDocInfo(id, field, value) {
             const res = findDocNode(documentTreeData, id);
             if (res) {
                 const currentValue = res.node[field];
                 const currentText = typeof currentValue === 'object' ? t(currentValue) : currentValue;
                 if (currentText !== value.trim()) {
-                    // Update as i18n object for name field
                     if (field === 'name') {
                         res.node.name = { vi: value.trim(), en: value.trim() };
                     } else {
@@ -1457,11 +1463,18 @@
                 }
             }
         }
-        function deleteDocument(id) {
+        
+        async function deleteDocument(id) {
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             const res = findDocNode(documentTreeData, id);
-            if (res) { res.parentArray.splice(res.index, 1); saveState(); renderDocumentTree(); saveDocumentsToAPI(); }
+            if (res) { 
+                res.parentArray.splice(res.index, 1); 
+                saveState(); renderDocumentTree(); 
+                await deleteDocumentFromAPI(id);
+                saveDocumentsToAPI();
+            }
         }
+        
         function toggleDocFolder(id) {
             const res = findDocNode(documentTreeData, id);
             if (res && res.node.children.length) { res.node.isOpen = !res.node.isOpen; saveState(); renderDocumentTree(); }
