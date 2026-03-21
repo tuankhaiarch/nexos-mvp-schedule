@@ -417,6 +417,9 @@
                         const status = d['Status'] || d.status;
                         const link = d['Link'] || d.link || '';
                         const notes = d['Notes'] || d.notes;
+                        // Get text/name from API if available
+                        const textVi = d['Text VI'] || d['Text'] || d['Name'] || d.text_vi || d.text || d.name || '';
+                        const textEn = d['Text EN'] || d['Text'] || d['Name'] || d.text_en || d.text || d.name || '';
                         
                         const sprintIndex = milestoneId - 1;
                         console.log(`  [${idx}] Milestone ID: ${milestoneId}, Deliverable ID: ${deliverableId}, Status: ${status}, sprintIndex: ${sprintIndex}`);
@@ -427,6 +430,9 @@
                                 console.log(`    ✓ Found deliverable ${deliverableId}, updating status to: ${status}`);
                                 deliv.status = status || 'open';
                                 deliv.link = link;
+                                // Update text if provided from API
+                                if (textVi) deliv.text.vi = textVi;
+                                if (textEn) deliv.text.en = textEn;
                                 try {
                                     deliv.notes = notes ? (typeof notes === 'string' ? JSON.parse(notes) : notes) : [];
                                 } catch (e) {
@@ -438,7 +444,23 @@
                                     }
                                 }
                             } else {
-                                console.warn(`    ✗ Deliverable ${deliverableId} not found in sprint ${sprintIndex}`);
+                                // Deliverable not found locally - ADD IT as new
+                                console.log(`    + Adding NEW deliverable ${deliverableId} to sprint ${sprintIndex}`);
+                                const newDeliv = {
+                                    id: deliverableId,
+                                    text: { vi: textVi || deliverableId, en: textEn || textVi || deliverableId },
+                                    status: status || 'open',
+                                    link: link,
+                                    notes: []
+                                };
+                                try {
+                                    newDeliv.notes = notes ? (typeof notes === 'string' ? JSON.parse(notes) : notes) : [];
+                                } catch (e) {
+                                    if (typeof notes === 'string' && notes.startsWith('http')) {
+                                        newDeliv.notes = [{ content: notes, is_resolved: false, date: new Date().toISOString() }];
+                                    }
+                                }
+                                sprintsData[sprintIndex].deliverables.push(newDeliv);
                             }
                         } else {
                             console.warn(`    ✗ Invalid sprintIndex: ${sprintIndex} for milestone ${milestoneId}`);
