@@ -46,6 +46,141 @@
         .doc-item.dragging * { user-select: none; }
         .doc-item input:focus { user-select: text; }
     </style>
+
+    <!-- Gist Sync Module -->
+    <script>
+        // ===== GIST CONFIGURATION =====
+        // Token được lưu trong localStorage để bảo mật
+        const GIST_CONFIG = {
+            gistId: '340dffd45afdb80233bffe546c925e26',
+            gistUrl: 'https://gist.githubusercontent.com/tuankhaiarch/340dffd45afdb80233bffe546c925e26/raw/nexos-data.json',
+            api_url: 'https://api.github.com/gists/340dffd45afdb80233bffe546c925e26',
+            getToken: () => localStorage.getItem('nexos_gist_token') || ''
+        };
+
+        // Kiểm tra token
+        function checkToken() {
+            const token = GIST_CONFIG.getToken();
+            if (!token) {
+                showTokenModal();
+                return false;
+            }
+            return true;
+        }
+
+        // Hiển thị modal nhập token
+        function showTokenModal() {
+            const modal = document.getElementById('token-modal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        }
+
+        // Lưu token
+        function saveToken() {
+            const tokenInput = document.getElementById('gist-token-input');
+            if (tokenInput && tokenInput.value.trim()) {
+                localStorage.setItem('nexos_gist_token', tokenInput.value.trim());
+                document.getElementById('token-modal').classList.add('hidden');
+                document.getElementById('token-modal').classList.remove('flex');
+                loadFromGist();
+            }
+        }
+
+        // Load data from Gist
+        async function loadFromGist() {
+            showSyncStatus('syncing', 'Đang tải dữ liệu...');
+            try {
+                const response = await fetch(GIST_CONFIG.gistUrl + '?t=' + Date.now());
+                if (!response.ok) throw new Error('Failed to fetch');
+                const data = await response.json();
+                
+                // Update sprintsData
+                if (data.sprints && Array.isArray(data.sprints)) {
+                    data.sprints.forEach(sprint => {
+                        const idx = sprint.id - 1;
+                        if (idx >= 0 && idx < sprintsData.length) {
+                            sprintsData[idx].date = sprint.date || sprintsData[idx].date;
+                            sprintsData[idx].title = sprint.title || sprintsData[idx].title;
+                            sprintsData[idx].tasks = sprint.tasks || sprintsData[idx].tasks;
+                            sprintsData[idx].tools = sprint.tools || sprintsData[idx].tools;
+                            sprintsData[idx].deliverables = sprint.deliverables || sprintsData[idx].deliverables;
+                            sprintsData[idx].meetings = sprint.meetings || sprintsData[idx].meetings;
+                        }
+                    });
+                }
+                
+                // Update documents
+                if (data.documents && Array.isArray(data.documents)) {
+                    documentTreeData = data.documents;
+                }
+                
+                showSyncStatus('synced', 'Đã đồng bộ');
+                console.log('✅ Loaded from Gist:', new Date().toLocaleString());
+                
+                renderNodes();
+                renderDashboard(activeNodeIndex);
+                renderDocumentTree();
+                calculateTimelineProgress();
+                return true;
+            } catch (error) {
+                console.error('Load error:', error);
+                showSyncStatus('error', 'Lỗi tải dữ liệu');
+                return false;
+            }
+        }
+
+        // Save data to Gist
+        async function saveToGist() {
+            const token = GIST_CONFIG.getToken();
+            if (!token) {
+                showTokenModal();
+                return false;
+            }
+            
+            showSyncStatus('syncing', 'Đang lưu...');
+            try {
+                const data = {
+                    sprints: sprintsData,
+                    documents: documentTreeData,
+                    lastUpdated: new Date().toISOString()
+                };
+                
+                const response = await fetch(GIST_CONFIG.api_url, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': 'token ' + token,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        files: {
+                            'nexos-data.json': {
+                                content: JSON.stringify(data, null, 2)
+                            }
+                        }
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Save failed');
+                showSyncStatus('synced', 'Đã lưu');
+                console.log('✅ Saved to Gist:', new Date().toLocaleString());
+                return true;
+            } catch (error) {
+                console.error('Save error:', error);
+                showSyncStatus('error', 'Lỗi lưu dữ liệu');
+                return false;
+            }
+        }
+
+        // Auto-save with debounce
+        let saveTimeout = null;
+        function autoSave() {
+            if (saveTimeout) clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => saveToGist(), 2000);
+        }
+    </script>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30 pb-24 relative overflow-x-hidden">
 
@@ -198,6 +333,28 @@
             </div>
         </div>
     </section>
+
+    <!-- Token Configuration Modal -->
+    <div id="token-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] hidden items-center justify-center p-4">
+        <div class="bg-slate-900 border border-cyan-700 rounded-2xl w-full max-w-md shadow-2xl">
+            <div class="p-5 border-b border-slate-700 flex items-center gap-3">
+                <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                <h4 class="font-bold text-white text-lg">Cấu hình GitHub Token</h4>
+            </div>
+            <div class="p-5">
+                <p class="text-slate-400 text-sm mb-4">Để lưu dữ liệu lên GitHub Gist, bạn cần nhập GitHub Personal Access Token với quyền <span class="text-cyan-400 font-medium">gist</span>.</p>
+                <div class="mb-2">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">GitHub Token</label>
+                    <input type="password" id="gist-token-input" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 text-white text-sm focus:outline-none focus:border-cyan-500" placeholder="ghp_xxxxxxxxxxxx">
+                </div>
+                <p class="text-xs text-slate-500">Token sẽ được lưu trong trình duyệt của bạn và không gửi đi đâu khác.</p>
+            </div>
+            <div class="p-5 border-t border-slate-700 flex justify-end gap-3">
+                <a href="https://github.com/settings/tokens/new?description=NEXOS%20Gist%20Sync&scopes=gist" target="_blank" class="px-4 py-2 rounded-lg text-sm font-medium text-cyan-400 hover:bg-slate-800 border border-slate-700">Tạo Token mới</a>
+                <button onclick="saveToken()" class="px-5 py-2 rounded-lg text-sm font-bold bg-cyan-600 text-white hover:bg-cyan-500 shadow-lg">Lưu Token</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Note Modal -->
     <div id="note-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 opacity-0 transition-opacity">
@@ -798,16 +955,30 @@
         // =============================================
         // LOCAL STORAGE (Cache)
         // =============================================
-        function loadState() {
-            const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                if(parsed.sprints) sprintsData = parsed.sprints;
-                if(parsed.documents) documentTreeData = parsed.documents;
+        async function loadState() {
+            // Try to load from Gist first
+            const loaded = await loadFromGist();
+            if (!loaded) {
+                // Fallback to localStorage
+                const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if(parsed.sprints) sprintsData = parsed.sprints;
+                    if(parsed.documents) documentTreeData = parsed.documents;
+                }
             }
         }
 
         function saveState() {
+            // Save to localStorage
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sprints: sprintsData, documents: documentTreeData }));
+            // Save to Gist
+            autoSave();
+            calculateTimelineProgress();
+        }
+        
+        // Original saveState (renamed)
+        function saveStateLocal() {
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sprints: sprintsData, documents: documentTreeData }));
             calculateTimelineProgress();
         }
@@ -1565,8 +1736,11 @@
             // Load local cache first
             loadState();
             
-            // Then sync with API
-            await loadFromAPI();
+            // Check token and sync with Gist
+            const hasToken = checkToken();
+            if (hasToken) {
+                await loadFromGist();
+            }
             
             // Render UI
             updateStaticUI();
