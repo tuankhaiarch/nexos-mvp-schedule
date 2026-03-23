@@ -51,28 +51,34 @@
     <script>
         // ===== GIST CONFIGURATION =====
         // Token được split để tránh GitHub secret scanning
-        const GIST_CONFIG = {
-            gistId: '340dffd45afdb80233bffe546c925e26',
-            gistUrl: 'https://gist.githubusercontent.com/tuankhaiarch/340dffd45afdb80233bffe546c925e26/raw/nexos-data.json',
-            api_url: 'https://api.github.com/gists/340dffd45afdb80233bffe546c925e26',
+        // GitHub Repo Config - sử dụng Contents API
+        const REPO_CONFIG = {
+            owner: 'tuankhaiarch',
+            repo: 'nexos-mvp-schedule',
+            path: 'data/nexos-data.json',
+            branch: 'main',
             // Token split thành 3 phần để tránh detection
             _t1: 'ghp_4mhhqk',
             _t2: 'pcXaZGwyiMJr',
             _t3: 'gNqinXmY7XWl42FOqk',
             getToken: function() {
-                // Ưu tiên token từ localStorage
                 const stored = localStorage.getItem('nexos_gist_token');
                 if (stored) return stored;
-                // Fallback: join các phần
                 return this._t1 + this._t2 + this._t3;
+            },
+            get apiUrl() {
+                return `https://api.github.com/repos/${this.owner}/${this.repo}/contents/${this.path}`;
+            },
+            get rawUrl() {
+                return `https://raw.githubusercontent.com/${this.owner}/${this.repo}/${this.branch}/${this.path}`;
             }
         };
 
-        // Load data from Gist
+        // Load data from GitHub Repo
         async function loadFromGist() {
             showSyncStatus('syncing', 'Đang tải dữ liệu...');
             try {
-                const response = await fetch(GIST_CONFIG.gistUrl + '?t=' + Date.now());
+                const response = await fetch(REPO_CONFIG.rawUrl + '?t=' + Date.now());
                 if (!response.ok) throw new Error('Failed to fetch');
                 const data = await response.json();
                 
@@ -97,7 +103,7 @@
                 }
                 
                 showSyncStatus('synced', 'Đã đồng bộ');
-                console.log('✅ Loaded from Gist:', new Date().toLocaleString());
+                console.log('✅ Loaded from Repo:', new Date().toLocaleString());
                 return true;
             } catch (error) {
                 console.error('Load error:', error);
@@ -106,9 +112,11 @@
             }
         }
 
-        // Save data to Gist
+        // Save data to GitHub Repo using Contents API
+        let _currentSha = null;
+        
         async function saveToGist() {
-            const token = GIST_CONFIG.getToken();
+            const token = REPO_CONFIG.getToken();
             
             showSyncStatus('syncing', 'Đang lưu...');
             try {
@@ -118,38 +126,58 @@
                     lastUpdated: new Date().toISOString()
                 };
                 
-                const response = await fetch(GIST_CONFIG.api_url, {
-                    method: 'PATCH',
+                // First, get the current file to get its SHA
+                let sha = null;
+                try {
+                    const getResponse = await fetch(REPO_CONFIG.apiUrl + '?ref=' + REPO_CONFIG.branch, {
+                        headers: {
+                            'Authorization': 'token ' + token,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+                    if (getResponse.ok) {
+                        const fileData = await getResponse.json();
+                        sha = fileData.sha;
+                    }
+                } catch (e) {
+                    console.log('File may not exist yet, will create new');
+                }
+                
+                // Prepare the commit
+                const commitData = {
+                    message: 'Update data from web app - ' + new Date().toISOString(),
+                    content: btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2)))),
+                    branch: REPO_CONFIG.branch
+                };
+                
+                if (sha) {
+                    commitData.sha = sha;
+                }
+                
+                const response = await fetch(REPO_CONFIG.apiUrl, {
+                    method: 'PUT',
                     headers: {
                         'Authorization': 'token ' + token,
                         'Accept': 'application/vnd.github.v3+json',
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        files: {
-                            'nexos-data.json': {
-                                content: JSON.stringify(data, null, 2)
-                            }
-                        }
-                    })
+                    body: JSON.stringify(commitData)
                 });
                 
-                if (!response.ok) throw new Error('Save failed');
+                if (!response.ok) {
+                    const errData = await response.json();
+                    console.error('GitHub API Error:', errData);
+                    throw new Error(errData.message || 'Save failed');
+                }
+                
                 showSyncStatus('synced', 'Đã lưu');
-                console.log('✅ Saved to Gist:', new Date().toLocaleString());
+                console.log('✅ Saved to Repo:', new Date().toLocaleString());
                 return true;
             } catch (error) {
                 console.error('Save error:', error);
                 showSyncStatus('error', 'Lỗi lưu dữ liệu');
                 return false;
             }
-        }
-
-        // Auto-save with debounce
-        let saveTimeout = null;
-        function autoSave() {
-            if (saveTimeout) clearTimeout(saveTimeout);
-            saveTimeout = setTimeout(() => saveToGist(), 2000);
         }
     </script>
 </head>
