@@ -98,11 +98,6 @@
                 
                 showSyncStatus('synced', 'Đã đồng bộ');
                 console.log('✅ Loaded from Gist:', new Date().toLocaleString());
-                
-                renderNodes();
-                renderDashboard(activeNodeIndex);
-                renderDocumentTree();
-                calculateTimelineProgress();
                 return true;
             } catch (error) {
                 console.error('Load error:', error);
@@ -909,16 +904,16 @@
         // =============================================
         // LOCAL STORAGE (Cache)
         // =============================================
-        async function loadState() {
-            // Try to load from Gist first
-            const loaded = await loadFromGist();
-            if (!loaded) {
-                // Fallback to localStorage
-                const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-                if (saved) {
+        function loadState() {
+            // Load from localStorage (synchronous)
+            const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (saved) {
+                try {
                     const parsed = JSON.parse(saved);
                     if(parsed.sprints) sprintsData = parsed.sprints;
                     if(parsed.documents) documentTreeData = parsed.documents;
+                } catch(e) {
+                    console.error('Parse error:', e);
                 }
             }
         }
