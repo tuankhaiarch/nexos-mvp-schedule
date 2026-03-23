@@ -1,0 +1,333 @@
+{
+  "sprints": [
+    {
+      "id": 1,
+      "date": "16/03 - 25/03",
+      "title": {
+        "vi": "Milestone 1: Định hướng & Thiết kế Khái niệm",
+        "en": "Milestone 1: Orientation & Concept Design"
+      },
+      "color": "bg-blue-500",
+      "shadow": "shadow-blue-500/50",
+      "tasks": [
+        {
+          "vi": "Thống nhất lại định hướng dựa trên thông tin cũ.",
+          "en": "Align on orientation based on previous info."
+        },
+        {
+          "vi": "Thống nhất PRD, Userflow, Template Đồ hoạ.",
+          "en": "Finalize PRD, Userflow, Graphic Template."
+        },
+        {
+          "vi": "Vẽ sơ đồ cashflow.",
+          "en": "Draw cashflow diagram."
+        },
+        {
+          "vi": "Lên danh sách Investor.",
+          "en": "Create Investor list."
+        }
+      ],
+      "tools": [
+        "AI (ChatGPT/Claude)",
+        "Platform references (Houzz...)",
+        "Whiteboard"
+      ],
+      "deliverables": [
+        {
+          "id": "d1_1",
+          "text": {
+            "vi": "PRD đã thống nhất",
+            "en": "Finalized PRD"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d1_2",
+          "text": {
+            "vi": "Sơ đồ Userflow",
+            "en": "Userflow diagram"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d1_3",
+          "text": {
+            "vi": "Sơ đồ Cashflow",
+            "en": "Cashflow diagram"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d1_4",
+          "text": {
+            "vi": "Bộ tài liệu đóng gói (gửi IT support)",
+            "en": "Packaging documents (send to IT)"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        }
+      ],
+      "meetings": []
+    },
+    {
+      "id": 2,
+      "date": "26/03 - 05/04",
+      "title": {
+        "vi": "Milestone 2: Prototype & Mock Data",
+        "en": "Milestone 2: Prototype & Mock Data"
+      },
+      "color": "bg-cyan-500",
+      "shadow": "shadow-cyan-500/50",
+      "tasks": [
+        {
+          "vi": "Xây dựng prototype.",
+          "en": "Build prototype."
+        },
+        {
+          "vi": "Tạo Mock Data cho R-Score, Cashflow.",
+          "en": "Create Mock Data for R-Score, Cashflow."
+        }
+      ],
+      "tools": [
+        "v0.dev, Midjourney, Claude",
+        "Figma / Framer"
+      ],
+      "deliverables": [
+        {
+          "id": "d2_1",
+          "text": {
+            "vi": "Bản Prototype click được",
+            "en": "Clickable Prototype"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d2_2",
+          "text": {
+            "vi": "Bộ Mock Data JSON",
+            "en": "JSON Mock Data"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d2_3",
+          "text": {
+            "vi": "Kịch bản Demo",
+            "en": "Demo Script"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        }
+      ],
+      "meetings": []
+    },
+    {
+      "id": 3,
+      "date": "06/04 - 15/04",
+      "title": {
+        "vi": "Milestone 3: Đóng gói Demo & Feedback",
+        "en": "Milestone 3: Package Demo & Feedback"
+      },
+      "color": "bg-teal-500",
+      "shadow": "shadow-teal-500/50",
+      "tasks": [
+        {
+          "vi": "Nhập data vào Prototype.",
+          "en": "Input data into Prototype."
+        },
+        {
+          "vi": "Gửi cho Strategist/Advisor.",
+          "en": "Send to Strategist/Advisor."
+        },
+        {
+          "vi": "Chốt hình thức feedback.",
+          "en": "Finalize feedback format."
+        }
+      ],
+      "tools": [
+        "Loom/Zoom",
+        "Miro/Google Slides"
+      ],
+      "deliverables": [
+        {
+          "id": "d3_1",
+          "text": {
+            "vi": "Link Prototype",
+            "en": "Prototype Link"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d3_2",
+          "text": {
+            "vi": "Video Demo",
+            "en": "Demo Video"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d3_3",
+          "text": {
+            "vi": "Draft Pitch Deck",
+            "en": "Draft Pitch Deck"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        }
+      ],
+      "meetings": []
+    },
+    {
+      "id": 4,
+      "date": "16/04 - 23/04",
+      "title": {
+        "vi": "Milestone 4: Tinh chỉnh & Lên lịch",
+        "en": "Milestone 4: Refine & Schedule"
+      },
+      "color": "bg-orange-500",
+      "shadow": "shadow-orange-500/50",
+      "tasks": [
+        {
+          "vi": "Tinh chỉnh 1 lần duy nhất.",
+          "en": "One-time refinement."
+        },
+        {
+          "vi": "Chuẩn bị Pitching Deck Final.",
+          "en": "Prepare Final Pitching Deck."
+        },
+        {
+          "vi": "Hẹn lịch Investor.",
+          "en": "Schedule with Investors."
+        }
+      ],
+      "tools": [
+        "Figma",
+        "Google Sheets/Airtable"
+      ],
+      "deliverables": [
+        {
+          "id": "d4_1",
+          "text": {
+            "vi": "Bản Prototype hoàn chỉnh",
+            "en": "Complete Prototype"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d4_2",
+          "text": {
+            "vi": "Pitching Deck (Final)",
+            "en": "Pitching Deck (Final)"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d4_3",
+          "text": {
+            "vi": "Lịch hẹn Pitching",
+            "en": "Pitching Schedule"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        }
+      ],
+      "meetings": []
+    },
+    {
+      "id": 5,
+      "date": "24/04 - 30/04",
+      "title": {
+        "vi": "Milestone 5: Freeze, Tech Doc & Rehearsal",
+        "en": "Milestone 5: Freeze, Tech Doc & Rehearsal"
+      },
+      "color": "bg-purple-500",
+      "shadow": "shadow-purple-500/50",
+      "tasks": [
+        {
+          "vi": "Khóa (Freeze) toàn bộ thay đổi.",
+          "en": "Freeze all changes."
+        },
+        {
+          "vi": "Chuẩn bị Tech Doc.",
+          "en": "Prepare Tech Doc."
+        },
+        {
+          "vi": "Tập dượt Pitching.",
+          "en": "Pitching Rehearsal."
+        }
+      ],
+      "tools": [
+        "Notion",
+        "Draw.io"
+      ],
+      "deliverables": [
+        {
+          "id": "d5_1",
+          "text": {
+            "vi": "Tech Scalability Doc",
+            "en": "Tech Scalability Doc"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        },
+        {
+          "id": "d5_2",
+          "text": {
+            "vi": "Sự sẵn sàng 100%",
+            "en": "100% Readiness"
+          },
+          "status": "open",
+          "link": "",
+          "notes": []
+        }
+      ],
+      "meetings": []
+    }
+  ],
+  "documents": [
+    {
+      "id": "doc_root_1",
+      "name": {
+        "vi": "1. Pháp lý & Kế toán",
+        "en": "1. Legal & Accounting"
+      },
+      "link": "",
+      "isOpen": true,
+      "children": []
+    },
+    {
+      "id": "doc_root_2",
+      "name": {
+        "vi": "2. Master Plan & Báo cáo",
+        "en": "2. Master Plan & Reports"
+      },
+      "link": "",
+      "isOpen": true,
+      "children": []
+    }
+  ],
+  "lastUpdated": "2026-03-22T10:05:00Z"
+}
