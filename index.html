@@ -300,7 +300,7 @@
         // GOOGLE SHEETS API CONFIGURATION
         // =====================================================
         // ✅ Google Apps Script Web App URL
-        const API_URL = 'https://script.google.com/macros/s/AKfycbzvtiecbOjC4EkAiL1J2Mn8Di6HibaJok1zAgIN9kWLezZkBjaK_UpCYGgczqS1K7B1/exec';
+        const API_URL = 'https://script.google.com/a/macros/nexos.vn/s/AKfycbxYjY3r4PFJlTmh8mtV1uJz-JlMkZfFXAMA0PySEWVnMKzPvSOMKigB45M2IB9mfY3_/exec';
         
         // Local Storage Key cho offline fallback
         const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v6';
@@ -350,43 +350,83 @@
         }
         
         // =====================================================
-        // API FUNCTIONS
+        // API FUNCTIONS - Hybrid: JSONP for read, no-cors POST for write
         // =====================================================
+        
+        let jsonpCounter = 0;
+        
+        // JSONP request (for reading data)
+        function jsonpRequest(action) {
+            return new Promise((resolve, reject) => {
+                const callbackName = 'nexos_callback_' + (++jsonpCounter);
+                let url = `${API_URL}?action=${action}&callback=${callbackName}&t=${Date.now()}`;
+                
+                const script = document.createElement('script');
+                script.src = url;
+                
+                const timeout = setTimeout(() => {
+                    cleanup();
+                    reject(new Error('Request timeout'));
+                }, 30000);
+                
+                function cleanup() {
+                    clearTimeout(timeout);
+                    delete window[callbackName];
+                    if (script.parentNode) script.parentNode.removeChild(script);
+                }
+                
+                window[callbackName] = function(data) {
+                    cleanup();
+                    if (data && data.success) {
+                        resolve(data);
+                    } else {
+                        reject(new Error(data && data.error ? data.error : 'API Error'));
+                    }
+                };
+                
+                script.onerror = function() {
+                    cleanup();
+                    reject(new Error('Network error'));
+                };
+                
+                document.head.appendChild(script);
+            });
+        }
+        
+        // POST request with no-cors (for writing data)
+        async function postRequest(action, payload) {
+            const url = `${API_URL}?action=${action}&t=${Date.now()}`;
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    mode: 'no-cors', // Bypass CORS - we won't get response but data will be saved
+                    headers: {
+                        'Content-Type': 'text/plain', // Use text/plain to avoid preflight
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                // With no-cors, we get an opaque response
+                // Assume success and verify by reading
+                return { success: true, message: 'Data sent (no-cors mode)' };
+            } catch (error) {
+                throw new Error('POST failed: ' + error.message);
+            }
+        }
         
         async function fetchFromAPI(action, payload = null) {
             if (API_URL === 'YOUR_WEB_APP_URL_HERE') {
-                console.warn('API_URL chưa được cấu hình. Dùng localStorage.');
+                console.warn('API_URL chưa được cấu hình.');
                 return null;
             }
             
-            try {
-                const url = payload ? 
-                    `${API_URL}?action=${action}` : 
-                    `${API_URL}?action=${action}`;
-                
-                const options = {
-                    method: payload ? 'POST' : 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    mode: 'cors',
-                };
-                
-                if (payload) {
-                    options.body = JSON.stringify(payload);
-                }
-                
-                const response = await fetch(url, options);
-                const data = await response.json();
-                
-                if (!data.success) {
-                    throw new Error(data.error || 'API Error');
-                }
-                
-                return data;
-            } catch (error) {
-                console.error('API Error:', error);
-                throw error;
+            if (payload) {
+                // WRITE operation - use POST with no-cors
+                return await postRequest(action, payload);
+            } else {
+                // READ operation - use JSONP
+                return await jsonpRequest(action);
             }
         }
         
