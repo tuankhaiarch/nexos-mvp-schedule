@@ -475,18 +475,30 @@
         async function loadState() {
             updateSyncIndicator('syncing', 'Đang tải dữ liệu...');
             
+            // Lưu backup default data
+            const defaultSprints = JSON.parse(JSON.stringify(sprintsData));
+            const defaultDocs = JSON.parse(JSON.stringify(documentTreeData));
+            
             try {
                 const result = await fetchFromAPI('read');
                 
                 if (result && result.data) {
-                    if (result.data.sprints && result.data.sprints.length > 0) {
+                    // CHỈ sử dụng data từ Sheet nếu ĐỦ 5 sprints
+                    if (result.data.sprints && result.data.sprints.length >= 5) {
                         sprintsData = result.data.sprints;
+                        console.log('✅ Loaded complete data from Google Sheets (' + result.data.sprints.length + ' sprints)');
+                    } else if (result.data.sprints && result.data.sprints.length > 0) {
+                        // Data không đủ -> merge với default
+                        console.log('⚠️ Sheet có ' + result.data.sprints.length + ' sprints (cần 5) -> Sử dụng default data');
+                        // Vẫn dùng default, nhưng sync lên sheet sau
+                        saveState(); // Sync default data lên
                     }
-                    if (result.data.documents) {
+                    
+                    if (result.data.documents && result.data.documents.length > 0) {
                         documentTreeData = result.data.documents;
                     }
+                    
                     updateSyncIndicator('synced');
-                    console.log('Data loaded from Google Sheets');
                     return;
                 }
             } catch (error) {
@@ -496,7 +508,7 @@
                 const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    if (parsed.sprints) sprintsData = parsed.sprints;
+                    if (parsed.sprints && parsed.sprints.length >= 5) sprintsData = parsed.sprints;
                     if (parsed.documents) documentTreeData = parsed.documents;
                     updateSyncIndicator('offline');
                     console.log('Loaded from localStorage (offline mode)');
@@ -506,14 +518,17 @@
                 return;
             }
             
-            // No data from API, check localStorage
+            // No data from API - check localStorage
             const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (saved) {
                 const parsed = JSON.parse(saved);
-                if (parsed.sprints) sprintsData = parsed.sprints;
+                if (parsed.sprints && parsed.sprints.length >= 5) sprintsData = parsed.sprints;
                 if (parsed.documents) documentTreeData = parsed.documents;
             }
             updateSyncIndicator('synced');
+            
+            // Sync default data lên Sheet nếu Sheet trống
+            saveState();
         }
         
         async function saveState() {
