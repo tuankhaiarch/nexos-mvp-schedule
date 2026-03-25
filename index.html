@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEXOS MVP Interactive Map</title>
+    <title>NEXOS MVP Interactive Map - Google Sheets Sync</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -11,188 +11,33 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
         .tooltip-content { display: none; }
         .has-tooltip:hover .tooltip-content { display: block; }
-        .loading-overlay { position: fixed; inset: 0; background: rgba(2,6,23,0.9); z-index: 9999; display: flex; align-items: center; justify-content: center; flex-direction: column; }
-        .loading-spinner { width: 48px; height: 48px; border: 4px solid #334155; border-top-color: #06b6d4; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .sync-indicator { position: fixed; bottom: 20px; left: 20px; z-index: 100; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-        .sync-indicator.syncing { background: #1e3a5f; color: #60a5fa; }
-        .sync-indicator.synced { background: #134e4a; color: #2dd4bf; }
-        .sync-indicator.error { background: #7f1d1d; color: #fca5a5; }
         
-        /* Drag and drop styles */
-        .doc-item { transition: all 0.2s ease; }
-        .doc-item.dragging { opacity: 0.5; background: #1e3a5f !important; }
-        .doc-item.drag-over { border-top: 3px solid #10b981 !important; background: rgba(16, 185, 129, 0.1); }
-        .doc-item.drag-over-bottom { border-bottom: 3px solid #10b981 !important; background: rgba(16, 185, 129, 0.1); }
-        .drag-handle { 
-            cursor: grab; 
-            opacity: 0.8; 
-            transition: all 0.2s; 
-            padding: 8px;
-            border-radius: 6px;
-            margin-right: 4px;
-            background: rgba(100, 116, 139, 0.3);
-            border: 1px solid rgba(100, 116, 139, 0.3);
+        /* Sync Status Indicator Styles */
+        .sync-indicator {
+            transition: all 0.3s ease;
         }
-        .drag-handle:hover { 
-            opacity: 1; 
-            background: rgba(16, 185, 129, 0.4);
-            border-color: rgba(16, 185, 129, 0.5);
+        .sync-indicator.syncing {
+            animation: pulse 1s infinite;
         }
-        .drag-handle:active { cursor: grabbing; }
-        .drag-handle.dragging { background: rgba(16, 185, 129, 0.5); }
-        
-        /* Prevent text selection during drag */
-        .doc-item.dragging * { user-select: none; }
-        .doc-item input:focus { user-select: text; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
     </style>
-
-    <!-- Gist Sync Module -->
-    <script>
-        // ===== GIST CONFIGURATION =====
-        // Token được split để tránh GitHub secret scanning
-        // GitHub Repo Config - sử dụng Contents API
-        const REPO_CONFIG = {
-            owner: 'tuankhaiarch',
-            repo: 'nexos-mvp-schedule',
-            path: 'data/nexos-data.json',
-            branch: 'main',
-            // Token split thành 3 phần để tránh detection
-            _t1: 'ghp_4mhhqk',
-            _t2: 'pcXaZGwyiMJr',
-            _t3: 'gNqinXmY7XWl42FOqk',
-            getToken: function() {
-                const stored = localStorage.getItem('nexos_gist_token');
-                if (stored) return stored;
-                return this._t1 + this._t2 + this._t3;
-            },
-            get apiUrl() {
-                return `https://api.github.com/repos/${this.owner}/${this.repo}/contents/${this.path}`;
-            },
-            get rawUrl() {
-                return `https://raw.githubusercontent.com/${this.owner}/${this.repo}/${this.branch}/${this.path}`;
-            }
-        };
-
-        // Load data from GitHub Repo
-        async function loadFromGist() {
-            showSyncStatus('syncing', 'Đang tải dữ liệu...');
-            try {
-                const response = await fetch(REPO_CONFIG.rawUrl + '?t=' + Date.now());
-                if (!response.ok) throw new Error('Failed to fetch');
-                const data = await response.json();
-                
-                // Update sprintsData
-                if (data.sprints && Array.isArray(data.sprints)) {
-                    data.sprints.forEach(sprint => {
-                        const idx = sprint.id - 1;
-                        if (idx >= 0 && idx < sprintsData.length) {
-                            sprintsData[idx].date = sprint.date || sprintsData[idx].date;
-                            sprintsData[idx].title = sprint.title || sprintsData[idx].title;
-                            sprintsData[idx].tasks = sprint.tasks || sprintsData[idx].tasks;
-                            sprintsData[idx].tools = sprint.tools || sprintsData[idx].tools;
-                            sprintsData[idx].deliverables = sprint.deliverables || sprintsData[idx].deliverables;
-                            sprintsData[idx].meetings = sprint.meetings || sprintsData[idx].meetings;
-                        }
-                    });
-                }
-                
-                // Update documents
-                if (data.documents && Array.isArray(data.documents)) {
-                    documentTreeData = data.documents;
-                }
-                
-                showSyncStatus('synced', 'Đã đồng bộ');
-                console.log('✅ Loaded from Repo:', new Date().toLocaleString());
-                return true;
-            } catch (error) {
-                console.error('Load error:', error);
-                showSyncStatus('error', 'Lỗi tải dữ liệu');
-                return false;
-            }
-        }
-
-        // Save data to GitHub Repo using Contents API
-        let _currentSha = null;
-        
-        async function saveToGist() {
-            const token = REPO_CONFIG.getToken();
-            
-            showSyncStatus('syncing', 'Đang lưu...');
-            try {
-                const data = {
-                    sprints: sprintsData,
-                    documents: documentTreeData,
-                    lastUpdated: new Date().toISOString()
-                };
-                
-                // First, get the current file to get its SHA
-                let sha = null;
-                try {
-                    const getResponse = await fetch(REPO_CONFIG.apiUrl + '?ref=' + REPO_CONFIG.branch, {
-                        headers: {
-                            'Authorization': 'token ' + token,
-                            'Accept': 'application/vnd.github.v3+json'
-                        }
-                    });
-                    if (getResponse.ok) {
-                        const fileData = await getResponse.json();
-                        sha = fileData.sha;
-                    }
-                } catch (e) {
-                    console.log('File may not exist yet, will create new');
-                }
-                
-                // Prepare the commit
-                const commitData = {
-                    message: 'Update data from web app - ' + new Date().toISOString(),
-                    content: btoa(unescape(encodeURIComponent(JSON.stringify(data, null, 2)))),
-                    branch: REPO_CONFIG.branch
-                };
-                
-                if (sha) {
-                    commitData.sha = sha;
-                }
-                
-                const response = await fetch(REPO_CONFIG.apiUrl, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': 'token ' + token,
-                        'Accept': 'application/vnd.github.v3+json',
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(commitData)
-                });
-                
-                if (!response.ok) {
-                    const errData = await response.json();
-                    console.error('GitHub API Error:', errData);
-                    throw new Error(errData.message || 'Save failed');
-                }
-                
-                showSyncStatus('synced', 'Đã lưu');
-                console.log('✅ Saved to Repo:', new Date().toLocaleString());
-                return true;
-            } catch (error) {
-                console.error('Save error:', error);
-                showSyncStatus('error', 'Lỗi lưu dữ liệu');
-                return false;
-            }
-        }
-    </script>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30 pb-24 relative overflow-x-hidden">
 
-    <!-- Loading Overlay -->
-    <div id="loading-overlay" class="loading-overlay">
-        <div class="loading-spinner"></div>
-        <p class="mt-4 text-cyan-400 font-medium" data-i18n="loadingText">Đang tải dữ liệu...</p>
+    <!-- ==================== SYNC STATUS BAR ==================== -->
+    <div id="sync-status-bar" class="fixed top-0 left-0 right-0 h-1 bg-slate-800 z-[200]">
+        <div id="sync-progress" class="h-full bg-cyan-500 transition-all duration-300" style="width: 0%"></div>
     </div>
 
-    <!-- Sync Indicator -->
-    <div id="sync-indicator" class="sync-indicator synced">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-        <span id="sync-text">Đã đồng bộ</span>
+    <!-- Sync Status Indicator -->
+    <div class="fixed top-4 left-4 md:top-6 md:left-6 z-[100]">
+        <div id="sync-indicator" class="sync-indicator flex items-center gap-2 bg-slate-800/90 backdrop-blur-sm px-3 py-1.5 rounded-full border border-slate-700 text-xs font-medium cursor-pointer hover:bg-slate-700/90 transition-all" onclick="manualSync()">
+            <span id="sync-icon" class="text-lg">🟡</span>
+            <span id="sync-text">Chưa kết nối</span>
+        </div>
     </div>
 
     <!-- Language Toggle Button -->
@@ -208,6 +53,7 @@
         <div class="inline-flex items-center justify-center space-x-2 bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full mb-6">
             <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
             <span class="text-sm font-medium tracking-wide text-cyan-400 uppercase" data-i18n="headerLabel">NEXOS Strategic Plan</span>
+            <span class="text-xs text-green-400 ml-1">☁️ Sync</span>
         </div>
         <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 text-white">
             <span data-i18n="mainTitle">Lộ Trình MVP</span> <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">Trust OS</span>
@@ -221,13 +67,21 @@
     <section class="py-16 px-4 md:px-12 w-full max-w-6xl mx-auto relative">
         <div class="relative md:pb-12 overflow-x-auto custom-scrollbar">
             <div class="min-w-max md:min-w-0 px-4 relative md:pb-24">
+                
+                <!-- Background Timeline Line -->
                 <div class="absolute z-0 w-1 md:h-2 bg-slate-800 rounded-full left-[156px] top-[28px] bottom-[28px] md:left-[96px] md:right-[96px] md:w-auto md:top-auto md:bottom-0">
+                    
+                    <!-- Milestone Markers -->
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[0%] top-[0%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="0"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[25%] top-[25%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="25"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[50%] top-[50%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="50"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[75%] top-[75%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="75"></div>
                     <div class="absolute w-3 h-3 rounded-full bg-slate-700 z-10 timeline-marker transition-colors duration-500 left-1/2 md:left-[100%] top-[100%] md:top-1/2 -translate-x-1/2 -translate-y-1/2" data-pct="100"></div>
+
+                    <!-- Progress Line -->
                     <div id="timeline-progress" class="bg-cyan-500 rounded-full w-full h-0 md:w-0 md:h-full transition-all duration-1000 shadow-[0_0_10px_rgba(6,182,212,0.5)]"></div>
+                    
+                    <!-- Current Date Indicator -->
                     <div id="current-date-marker" class="absolute w-4 h-4 bg-white border-4 border-cyan-500 rounded-full shadow-lg z-20 transition-all duration-1000 group" style="transform: translate(-50%, -50%);">
                         <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-cyan-600 text-white text-xs font-bold py-1 px-3 rounded whitespace-nowrap hidden md:block">
                             <span data-i18n="todayPrefix">Hôm nay:</span> <span id="today-text"></span>
@@ -239,7 +93,11 @@
                         </div>
                     </div>
                 </div>
-                <div id="nodes-container" class="relative z-10 flex flex-col space-y-20 md:flex-row md:justify-between md:items-start md:space-y-0 pb-10 md:pb-0"></div>
+
+                <!-- Nodes Container -->
+                <div id="nodes-container" class="relative z-10 flex flex-col space-y-20 md:flex-row md:justify-between md:items-start md:space-y-0 pb-10 md:pb-0">
+                    <!-- Rendered via JS -->
+                </div>
             </div>
         </div>
     </section>
@@ -247,8 +105,10 @@
     <!-- Details Dashboard Area -->
     <section class="pb-12 px-4 md:px-6 w-full max-w-6xl mx-auto">
         <div id="dashboard-content" class="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 md:p-10 backdrop-blur-md shadow-2xl transition-all duration-500">
+            
             <div class="mb-8 border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div class="flex-1">
+                    <!-- Editable Date Wrapper -->
                     <div class="flex items-center gap-2 group mb-2 w-max cursor-pointer" onclick="editMilestoneDate()">
                         <p id="detail-date" class="text-cyan-400 font-mono text-sm border-b border-dashed border-transparent hover:border-cyan-400 transition-colors"></p>
                         <button class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-cyan-400 transition-opacity" title="Sửa thời gian"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
@@ -261,8 +121,9 @@
                 <div id="detail-badge" class="px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-lg inline-block w-max shrink-0"></div>
             </div>
 
-            <!-- 3 Columns Layout -->
+            <!-- 3 Columns Layout (Tasks, Tools, Deliverables) -->
             <div class="grid md:grid-cols-12 gap-8 mb-10">
+                <!-- Task Column -->
                 <div class="md:col-span-4 flex flex-col h-full">
                     <div class="flex items-center gap-3 text-slate-300 border-b border-slate-800 pb-3 mb-4">
                         <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
@@ -272,6 +133,7 @@
                     <button onclick="addItem('tasks')" class="mt-3 py-2 text-xs font-semibold text-slate-500 hover:text-blue-400 border border-dashed border-slate-700 hover:border-blue-500/50 rounded-lg w-full flex items-center justify-center gap-2 transition-colors"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> <span data-i18n="addBtnText">Thêm</span></button>
                 </div>
 
+                <!-- Tool Column -->
                 <div class="md:col-span-3 flex flex-col h-full relative md:before:absolute md:before:inset-y-0 md:before:-left-4 md:before:w-px md:before:bg-gradient-to-b md:before:from-slate-800 md:before:to-transparent">
                     <div class="flex items-center gap-3 text-slate-300 border-b border-slate-800 pb-3 mb-4">
                         <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
@@ -281,6 +143,7 @@
                     <button onclick="addItem('tools')" class="mt-3 py-2 text-xs font-semibold text-slate-500 hover:text-amber-400 border border-dashed border-slate-700 hover:border-amber-500/50 rounded-lg w-full flex items-center justify-center gap-2 transition-colors"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> <span data-i18n="addBtnText">Thêm</span></button>
                 </div>
                 
+                <!-- Deliverable Column -->
                 <div class="md:col-span-5 flex flex-col h-full relative md:before:absolute md:before:inset-y-0 md:before:-left-4 md:before:w-px md:before:bg-gradient-to-b md:before:from-slate-800 md:before:to-transparent">
                     <div class="flex items-center justify-between text-slate-300 border-b border-slate-800 pb-3 mb-4">
                         <div class="flex items-center gap-3">
@@ -323,16 +186,46 @@
                     <span data-i18n="addDocBtn">Thêm Thư mục/Tài liệu</span>
                 </button>
             </div>
-            <div class="text-xs text-slate-400 mb-3 flex items-center gap-2 bg-slate-800/50 px-3 py-2 rounded-lg border border-slate-700/50">
-                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-                <span><span class="text-emerald-400 font-medium">Hướng dẫn:</span> Click và giữ vào biểu tượng 6 chấm ở đầu mỗi dòng để kéo thả sắp xếp vị trí tài liệu</span>
-            </div>
+            
             <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-x-auto custom-scrollbar">
                 <div id="document-tree-root" class="min-w-[600px]"></div>
             </div>
         </div>
     </section>
 
+    <!-- ==================== SETUP MODAL ==================== -->
+    <div id="setup-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg shadow-2xl">
+            <div class="p-5 border-b border-slate-700">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">⚙️</span>
+                    <h4 class="font-bold text-white text-lg">Cấu hình kết nối Google Sheets</h4>
+                </div>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Google Apps Script URL</label>
+                    <input type="text" id="script-url-input" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2.5 text-white text-sm focus:outline-none focus:border-cyan-500" placeholder="https://script.google.com/macros/s/xxx/exec">
+                </div>
+                <div class="bg-slate-800/50 rounded-lg p-3 text-xs text-slate-400 border border-slate-700">
+                    <p class="font-semibold text-slate-300 mb-2">📌 Hướng dẫn lấy URL:</p>
+                    <ol class="list-decimal list-inside space-y-1">
+                        <li>Mở Google Sheet của bạn</li>
+                        <li>Vào Extensions → Apps Script</li>
+                        <li>Paste code từ file Code.gs</li>
+                        <li>Deploy → New deployment → Web app</li>
+                        <li>Copy URL và paste vào đây</li>
+                    </ol>
+                </div>
+            </div>
+            <div class="p-5 border-t border-slate-700 flex justify-end gap-3">
+                <button onclick="closeSetupModal()" class="px-5 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800">Đóng</button>
+                <button onclick="saveScriptUrl()" class="px-5 py-2.5 rounded-lg text-sm font-bold bg-cyan-600 text-white hover:bg-cyan-500">Lưu & Kết nối</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
     <!-- Note Modal -->
     <div id="note-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 opacity-0 transition-opacity">
         <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md shadow-2xl transform scale-95 transition-transform" id="note-modal-content">
@@ -356,7 +249,7 @@
             <div class="p-5 border-b border-slate-700 flex justify-between items-center">
                 <div class="flex items-center gap-3">
                     <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                    <h4 class="font-bold text-white text-lg" id="meeting-modal-title" data-i18n="createMeetTitle">Tạo Cuộc Họp Mới</h4>
+                    <h4 class="font-bold text-white text-lg" data-i18n="createMeetTitle">Tạo Cuộc Họp Mới</h4>
                 </div>
                 <button onclick="closeMeetingModal()" class="text-slate-400 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
             </div>
@@ -430,317 +323,282 @@
             </div>
             <div class="p-5 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/50 rounded-b-xl">
                 <button onclick="closeMeetingDetailModal()" class="px-5 py-2.5 rounded-lg text-sm font-bold bg-slate-700 text-white hover:bg-slate-600" data-i18n="closeBtn">Đóng</button>
-                <button id="edit-meeting-btn" class="px-5 py-2.5 rounded-lg text-sm font-bold bg-purple-600 text-white hover:bg-purple-500 shadow-lg shadow-purple-500/30" data-i18n="editBtn">Sửa</button>
             </div>
         </div>
     </div>
 
     <script>
-        // =============================================
-        // API CONFIGURATION - Google Sheets Backend
-        // =============================================
-        const API_URL = 'https://script.google.com/macros/s/AKfycbx5-Wuca8z1CkZNnN8Md_bQwWBc99E1OmCC8VjQOHCcaK_83l-jepgqwdrCXCO0CYOdaw/exec';
-        const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v6';
+        // ═══════════════════════════════════════════════════════════════
+        // GOOGLE SHEETS SYNC CONFIGURATION
+        // ═══════════════════════════════════════════════════════════════
         
-        // Sync status management
+        // ⚠️ QUAN TRỌNG: Thay thế URL này bằng URL từ Google Apps Script deployment
+        let GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby-sL65EnRKBD3PGQHkRqKGoSKC8RbwdYVwKc8bwf5WNLyxxyLqFp4K_tiQktxgobbK/exec';
+        
+        // Sync state
         let isSyncing = false;
-        let pendingSync = null;
-        
-        function showSyncStatus(status, text) {
+        let lastSyncTime = null;
+        let pendingChanges = false;
+        let syncEnabled = false;
+
+        // ═══════════════════════════════════════════════════════════════
+        // SYNC FUNCTIONS
+        // ═══════════════════════════════════════════════════════════════
+
+        /**
+         * Cập nhật trạng thái sync trên UI
+         */
+        function updateSyncStatus(status, message = '') {
             const indicator = document.getElementById('sync-indicator');
-            const syncText = document.getElementById('sync-text');
-            indicator.className = 'sync-indicator ' + status;
-            syncText.textContent = text;
-        }
-        
-        // JSONP-based API call to bypass CORS
-        function apiGet(action, params = {}) {
-            return new Promise((resolve) => {
-                const callbackName = 'jsonp_callback_' + Date.now();
-                const url = new URL(API_URL);
-                url.searchParams.append('action', action);
-                url.searchParams.append('callback', callbackName);
-                Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
-                
-                window[callbackName] = function(data) {
-                    delete window[callbackName];
-                    document.body.removeChild(script);
-                    resolve(data);
-                };
-                
-                const script = document.createElement('script');
-                script.src = url.toString();
-                script.onerror = function() {
-                    delete window[callbackName];
-                    document.body.removeChild(script);
-                    resolve({ success: false, error: 'Network error' });
-                };
-                document.body.appendChild(script);
-            });
-        }
-        
-        // Simple POST using fetch with no-cors mode
-        async function apiPostSimple(action, data = {}) {
-            try {
-                showSyncStatus('syncing', 'Đang đồng bộ...');
-                const formData = new FormData();
-                formData.append('action', action);
-                Object.keys(data).forEach(key => {
-                    formData.append(key, typeof data[key] === 'object' ? JSON.stringify(data[key]) : data[key]);
-                });
-                
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    body: formData,
-                    mode: 'no-cors'
-                });
-                showSyncStatus('synced', 'Đã đồng bộ');
-                return { success: true, message: 'Request sent' };
-            } catch (error) {
-                console.error('API POST Error:', error);
-                showSyncStatus('error', 'Lỗi đồng bộ');
-                return { success: false, error: error.message };
-            }
-        }
-        
-        // Load data from API
-        async function loadFromAPI() {
-            showSyncStatus('syncing', 'Đang tải dữ liệu...');
-            const result = await apiGet('getAllData');
+            const icon = document.getElementById('sync-icon');
+            const text = document.getElementById('sync-text');
             
-            if (result.success && result.data) {
-                // Load milestones dates
-                if (result.data.milestones && Array.isArray(result.data.milestones)) {
-                    result.data.milestones.forEach(m => {
-                        const idx = m.id - 1;
-                        if (idx >= 0 && idx < sprintsData.length && m.date) {
-                            sprintsData[idx].date = m.date;
-                        }
-                    });
-                }
-                
-                // Load tasks
-                if (result.data.tasks && Array.isArray(result.data.tasks)) {
-                    result.data.tasks.forEach(t => {
-                        const idx = t.milestone_id - 1;
-                        if (idx >= 0 && idx < sprintsData.length) {
-                            if (t.text_vi || t.text_en) {
-                                sprintsData[idx].tasks[t.index] = { vi: t.text_vi, en: t.text_en };
-                            }
-                        }
-                    });
-                }
-                
-                // Load tools
-                if (result.data.tools && Array.isArray(result.data.tools)) {
-                    result.data.tools.forEach(t => {
-                        const idx = t.milestone_id - 1;
-                        if (idx >= 0 && idx < sprintsData.length) {
-                            sprintsData[idx].tools[t.index] = t.text;
-                        }
-                    });
-                }
-                
-                // Load deliverables
-                if (result.data.deliverables && Array.isArray(result.data.deliverables)) {
-                    console.log('📦 Loading deliverables from API:', result.data.deliverables.length, 'items');
-                    result.data.deliverables.forEach((d, idx) => {
-                        // Handle both API formats: "Milestone ID" or "milestone_id"
-                        const milestoneId = d['Milestone ID'] || d.milestone_id;
-                        const deliverableId = d['Deliverable ID'] || d.id;
-                        const status = d['Status'] || d.status;
-                        const link = d['Link'] || d.link || '';
-                        const notes = d['Notes'] || d.notes;
-                        // Get text/name from API if available
-                        const textVi = d['Text VI'] || d['Text'] || d['Name'] || d.text_vi || d.text || d.name || '';
-                        const textEn = d['Text EN'] || d['Text'] || d['Name'] || d.text_en || d.text || d.name || '';
-                        
-                        const sprintIndex = milestoneId - 1;
-                        console.log(`  [${idx}] Milestone ID: ${milestoneId}, Deliverable ID: ${deliverableId}, Status: ${status}, sprintIndex: ${sprintIndex}`);
-                        
-                        if (sprintIndex >= 0 && sprintIndex < sprintsData.length) {
-                            const deliv = sprintsData[sprintIndex].deliverables.find(item => item.id === deliverableId);
-                            if (deliv) {
-                                console.log(`    ✓ Found deliverable ${deliverableId}, updating status to: ${status}`);
-                                deliv.status = status || 'open';
-                                deliv.link = link;
-                                // Update text if provided from API
-                                if (textVi) deliv.text.vi = textVi;
-                                if (textEn) deliv.text.en = textEn;
-                                try {
-                                    deliv.notes = notes ? (typeof notes === 'string' ? JSON.parse(notes) : notes) : [];
-                                } catch (e) {
-                                    // Notes might be a URL string, not JSON
-                                    if (typeof notes === 'string' && notes.startsWith('http')) {
-                                        deliv.notes = [{ content: notes, is_resolved: false, date: new Date().toISOString() }];
-                                    } else {
-                                        deliv.notes = [];
-                                    }
-                                }
-                            } else {
-                                // Deliverable not found locally - ADD IT as new
-                                console.log(`    + Adding NEW deliverable ${deliverableId} to sprint ${sprintIndex}`);
-                                const newDeliv = {
-                                    id: deliverableId,
-                                    text: { vi: textVi || deliverableId, en: textEn || textVi || deliverableId },
-                                    status: status || 'open',
-                                    link: link,
-                                    notes: []
-                                };
-                                try {
-                                    newDeliv.notes = notes ? (typeof notes === 'string' ? JSON.parse(notes) : notes) : [];
-                                } catch (e) {
-                                    if (typeof notes === 'string' && notes.startsWith('http')) {
-                                        newDeliv.notes = [{ content: notes, is_resolved: false, date: new Date().toISOString() }];
-                                    }
-                                }
-                                sprintsData[sprintIndex].deliverables.push(newDeliv);
-                            }
-                        } else {
-                            console.warn(`    ✗ Invalid sprintIndex: ${sprintIndex} for milestone ${milestoneId}`);
-                        }
-                    });
-                    console.log('✅ Deliverables loaded from API');
-                }
-                
-                // Load meetings
-                if (result.data.meetings && Array.isArray(result.data.meetings)) {
-                    meetingsData = []; // Reset and reload from API
-                    result.data.meetings.forEach(m => {
-                        // Handle both API formats
-                        const meetingObj = {
-                            id: m.ID || m.id,
-                            title: m.Title || m.title,
-                            date: m.Date || m.date,
-                            time: m.Time || m.time,
-                            duration: m.Duration || m.duration,
-                            type: m.Type || m.type || 'online',
-                            participants: m.Participants || m.participants || '',
-                            notes: m.Notes || m.notes || '',
-                            meetLink: m.MeetLink || m.meetLink || m.meet_link || '',
-                            createdAt: m.createdAt || new Date().toISOString()
-                        };
-                        meetingsData.push(meetingObj);
-                    });
-                }
-                
-                // Load documents
-                if (result.data.documents && Array.isArray(result.data.documents) && result.data.documents.length > 0) {
-                    const docMap = {};
-                    result.data.documents.forEach(d => {
-                        docMap[d.id] = {
-                            id: d.id,
-                            name: { vi: d.name_vi, en: d.name_en || d.name_vi },
-                            link: d.link || '',
-                            isOpen: d.is_open,
-                            children: [],
-                            order: d.order || 0
-                        };
-                    });
-                    
-                    const roots = [];
-                    result.data.documents.forEach(d => {
-                        if (d.parent_id && docMap[d.parent_id]) {
-                            docMap[d.parent_id].children.push(docMap[d.id]);
-                        } else {
-                            roots.push(docMap[d.id]);
-                        }
-                    });
-                    
-                    // Sort by order
-                    roots.sort((a, b) => (a.order || 0) - (b.order || 0));
-                    
-                    if (roots.length > 0) {
-                        documentTreeData = roots;
-                    }
-                }
-                
-                showSyncStatus('synced', 'Đã đồng bộ');
-                return true;
-            } else {
-                showSyncStatus('error', 'Lỗi tải dữ liệu');
-                return false;
+            indicator.classList.remove('syncing');
+            
+            switch(status) {
+                case 'connected':
+                    icon.textContent = '🟢';
+                    text.textContent = message || 'Đã đồng bộ';
+                    syncEnabled = true;
+                    break;
+                case 'syncing':
+                    icon.textContent = '🟡';
+                    text.textContent = message || 'Đang đồng bộ...';
+                    indicator.classList.add('syncing');
+                    break;
+                case 'error':
+                    icon.textContent = '🔴';
+                    text.textContent = message || 'Lỗi kết nối';
+                    syncEnabled = false;
+                    break;
+                case 'offline':
+                    icon.textContent = '🟠';
+                    text.textContent = message || 'Offline (lưu cục bộ)';
+                    syncEnabled = false;
+                    break;
+                default:
+                    icon.textContent = '🟡';
+                    text.textContent = message || 'Chưa kết nối';
+                    syncEnabled = false;
             }
-        }
-        
-        // =============================================
-        // API SAVE FUNCTIONS
-        // =============================================
-        
-        async function saveMilestoneToAPI(milestoneId, date) {
-            return apiPostSimple('updateMilestone', { id: milestoneId, date: date });
-        }
-        
-        async function saveTasksToAPI(sprintIndex) {
-            return apiPostSimple('updateTasks', {
-                milestone_id: sprintIndex + 1,
-                tasks: JSON.stringify(sprintsData[sprintIndex].tasks)
-            });
-        }
-        
-        async function saveToolsToAPI(sprintIndex) {
-            return apiPostSimple('updateTools', {
-                milestone_id: sprintIndex + 1,
-                tools: JSON.stringify(sprintsData[sprintIndex].tools)
-            });
-        }
-        
-        async function saveDeliverableToAPI(sprintIndex, delivIndex) {
-            const deliv = sprintsData[sprintIndex].deliverables[delivIndex];
-            return apiPostSimple('updateDeliverable', {
-                id: deliv.id,
-                milestone_id: sprintIndex + 1,
-                status: deliv.status,
-                link: deliv.link,
-                notes: JSON.stringify(deliv.notes)
-            });
-        }
-        
-        async function deleteDeliverableFromAPI(delivId) {
-            return apiPostSimple('deleteDeliverable', { id: delivId });
-        }
-        
-        async function addMeetingToAPI(sprintIndex, meeting) {
-            return apiPostSimple('addMeeting', {
-                id: meeting.id,
-                milestone_id: sprintIndex + 1,
-                title: meeting.title,
-                time: meeting.time,
-                link: meeting.link,
-                attendees: meeting.attendees.join(','),
-                agenda: meeting.agenda
-            });
-        }
-        
-        async function updateMeetingToAPI(meeting) {
-            return apiPostSimple('updateMeeting', {
-                id: meeting.id,
-                title: meeting.title,
-                time: meeting.time,
-                link: meeting.link,
-                attendees: meeting.attendees.join(','),
-                agenda: meeting.agenda,
-                mom_link: meeting.momLink
-            });
-        }
-        
-        async function deleteMeetingFromAPI(meetId) {
-            return apiPostSimple('deleteMeeting', { id: meetId });
-        }
-        
-        async function saveDocumentsToAPI() {
-            return apiPostSimple('saveDocuments', {
-                documents: JSON.stringify(documentTreeData)
-            });
-        }
-        
-        async function deleteDocumentFromAPI(docId) {
-            return apiPostSimple('deleteDocument', { id: docId });
         }
 
-        // =============================================
-        // TRANSLATION / i18n
-        // =============================================
+        /**
+         * Hiển thị progress bar khi sync
+         */
+        function showSyncProgress(show = true, progress = 0) {
+            const progressBar = document.getElementById('sync-progress');
+            if (show) {
+                progressBar.style.width = progress + '%';
+            } else {
+                progressBar.style.width = '0%';
+            }
+        }
+
+        /**
+         * Gọi API Google Apps Script
+         */
+        async function callGoogleScript(action, data = null) {
+            if (!GOOGLE_SCRIPT_URL) {
+                throw new Error('Chưa cấu hình Google Script URL');
+            }
+
+            const url = `${GOOGLE_SCRIPT_URL}?action=${action}`;
+            const options = {
+                method: data ? 'POST' : 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors',
+            };
+
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+
+            const response = await fetch(url, options);
+            const result = await response.json();
+            
+            if (result.status === 'error') {
+                throw new Error(result.message);
+            }
+            
+            return result;
+        }
+
+        /**
+         * Đồng bộ dữ liệu từ Google Sheets
+         */
+        async function syncFromCloud() {
+            if (isSyncing || !GOOGLE_SCRIPT_URL) return;
+            
+            try {
+                isSyncing = true;
+                updateSyncStatus('syncing', 'Đang tải dữ liệu...');
+                showSyncProgress(true, 30);
+
+                const result = await callGoogleScript('get');
+                showSyncProgress(true, 70);
+
+                if (result.data) {
+                    // Merge với dữ liệu local (ưu tiên cloud)
+                    if (result.data.sprints && result.data.sprints.length > 0) {
+                        sprintsData = result.data.sprints;
+                    }
+                    if (result.data.documents && result.data.documents.length > 0) {
+                        documentTreeData = result.data.documents;
+                    }
+                    
+                    // Lưu vào localStorage để offline
+                    saveToLocalStorage();
+                    
+                    // Update UI
+                    renderNodes();
+                    updateDashboard(activeNodeIndex);
+                    renderDocumentTree();
+                    
+                    lastSyncTime = new Date();
+                    updateSyncStatus('connected', `Đã đồng bộ ${lastSyncTime.toLocaleTimeString('vi-VN')}`);
+                }
+
+                showSyncProgress(true, 100);
+                setTimeout(() => showSyncProgress(false), 500);
+
+            } catch (error) {
+                console.error('Sync from cloud failed:', error);
+                updateSyncStatus('error', 'Lỗi: ' + error.message);
+                showSyncProgress(false);
+            } finally {
+                isSyncing = false;
+            }
+        }
+
+        /**
+         * Đồng bộ dữ liệu lên Google Sheets
+         */
+        async function syncToCloud() {
+            if (isSyncing || !GOOGLE_SCRIPT_URL) {
+                // Nếu chưa kết nối, chỉ lưu local
+                saveToLocalStorage();
+                return;
+            }
+
+            try {
+                isSyncing = true;
+                updateSyncStatus('syncing', 'Đang lưu...');
+                showSyncProgress(true, 30);
+
+                const data = {
+                    sprints: sprintsData,
+                    documents: documentTreeData,
+                    settings: { lastUpdated: new Date().toISOString() }
+                };
+
+                await callGoogleScript('save', data);
+                showSyncProgress(true, 100);
+
+                lastSyncTime = new Date();
+                updateSyncStatus('connected', `Đã lưu ${lastSyncTime.toLocaleTimeString('vi-VN')}`);
+                
+                // Cũng lưu local để backup
+                saveToLocalStorage();
+
+                setTimeout(() => showSyncProgress(false), 500);
+
+            } catch (error) {
+                console.error('Sync to cloud failed:', error);
+                updateSyncStatus('error', 'Lỗi lưu: ' + error.message);
+                showSyncProgress(false);
+                // Fallback: lưu local
+                saveToLocalStorage();
+            } finally {
+                isSyncing = false;
+            }
+        }
+
+        /**
+         * Lưu vào localStorage (offline backup)
+         */
+        function saveToLocalStorage() {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ 
+                sprints: sprintsData, 
+                documents: documentTreeData 
+            }));
+        }
+
+        /**
+         * Tải từ localStorage
+         */
+        function loadFromLocalStorage() {
+            const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if(parsed.sprints) sprintsData = parsed.sprints;
+                if(parsed.documents) documentTreeData = parsed.documents;
+            }
+        }
+
+        /**
+         * Manual sync button
+         */
+        function manualSync() {
+            if (!GOOGLE_SCRIPT_URL) {
+                openSetupModal();
+                return;
+            }
+            syncFromCloud();
+        }
+
+        /**
+         * Setup modal functions
+         */
+        function openSetupModal() {
+            document.getElementById('setup-modal').classList.remove('hidden');
+            document.getElementById('script-url-input').value = GOOGLE_SCRIPT_URL;
+        }
+
+        function closeSetupModal() {
+            document.getElementById('setup-modal').classList.add('hidden');
+        }
+
+        async function saveScriptUrl() {
+            const url = document.getElementById('script-url-input').value.trim();
+            if (!url) {
+                alert('Vui lòng nhập Google Script URL');
+                return;
+            }
+
+            // Validate URL
+            if (!url.includes('script.google.com')) {
+                alert('URL không hợp lệ. URL phải từ script.google.com');
+                return;
+            }
+
+            GOOGLE_SCRIPT_URL = url;
+            localStorage.setItem('nexos_script_url', url);
+
+            closeSetupModal();
+
+            // Test connection
+            try {
+                updateSyncStatus('syncing', 'Đang kết nối...');
+                const result = await callGoogleScript('test');
+                
+                if (result.status === 'success') {
+                    updateSyncStatus('connected', 'Kết nối thành công!');
+                    // Sync data
+                    await syncFromCloud();
+                }
+            } catch (error) {
+                updateSyncStatus('error', 'Kết nối thất bại: ' + error.message);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // ORIGINAL APP CODE (Modified to use sync)
+        // ═══════════════════════════════════════════════════════════════
+
+        // --- TRANSLATION / i18n ---
         let currentLang = 'vi';
 
         const TRANSLATIONS = {
@@ -752,19 +610,18 @@
                 meetTitle: "Lịch họp & Sự kiện", createMeetBtn: "Tạo lịch hẹn",
                 docRepoTitle: "Kho Tài liệu Dự án Chung", addDocBtn: "Thêm Thư mục/Tài liệu",
                 addNoteTitle: "Thêm Ghi chú", cancelBtn: "Hủy", saveNoteBtn: "Lưu ghi chú", notePlaceholder: "Nhập nội dung...",
-                createMeetTitle: "Tạo Cuộc Họp Mới", editMeetTitle: "Sửa Cuộc Họp", meetNameLabel: "Tiêu đề cuộc họp", meetNamePlaceholder: "VD: Báo cáo Prototype",
+                createMeetTitle: "Tạo Cuộc Họp Mới", meetNameLabel: "Tiêu đề cuộc họp", meetNamePlaceholder: "VD: Báo cáo Prototype",
                 meetTimeLabel: "Thời gian", meetLinkLabel: "Link Tham Gia", meetAttendeesLabel: "Người tham dự (email, dấu phẩy)",
                 meetAttendeesPlaceholder: "VD: ceo@nexos.vn", meetAgendaLabel: "Agenda", meetAgendaPlaceholder: "Nội dung cuộc họp...",
                 saveMeetBtn: "Lưu Lịch Họp", meetDetailTitle: "Chi tiết Cuộc Họp", meetAttendeesLabel2: "Người tham dự",
-                meetJoinLink: "Link Tham gia", meetMomLink: "Biên bản (MOM)", closeBtn: "Đóng", editBtn: "Sửa",
+                meetJoinLink: "Link Tham gia", meetMomLink: "Biên bản (MOM)", closeBtn: "Đóng",
                 noMeet: "Chưa có lịch họp nào.", noDoc: "Chưa có tài liệu nào.", noNote: "Chưa có ghi chú nào.",
                 markDone: "Done", addNoteNew: "Thêm Ghi chú mới", pasteLink: "Dán link tài liệu...", pasteMom: "Dán link biên bản...",
                 folderName: "Nhập tên...", noLink: "Không có Link", join: "Tham gia", detail: "Chi tiết", viewMom: "Xem Biên bản",
                 unspecified: "Chưa xác định", noContent: "Không có nội dung.", noMom: "Chưa có biên bản", attendeesEmpty: "Chưa xếp người tham dự",
                 openLink: "Mở Link", itSupport: "Hỗ trợ IT", detailsTxt: "Chi tiết:", alertMeet: "Nhập Tiêu đề và Thời gian.",
                 confirmDelete: "Bạn có chắc chắn muốn xóa?", addBtnText: "Thêm", addDelivBtn: "Thêm Deliverable",
-                promptEdit: "Nhập nội dung mới:", promptDeliv: "Nhập tên Deliverable:", promptMsDate: "Nhập thời gian (VD: 16/03 - 25/03):",
-                loadingText: "Đang tải dữ liệu..."
+                promptEdit: "Nhập nội dung mới:", promptDeliv: "Nhập tên Deliverable:", promptMsDate: "Nhập thời gian (VD: 16/03 - 25/03):"
             },
             en: {
                 headerLabel: "NEXOS Strategic Plan", mainTitle: "MVP Roadmap",
@@ -774,19 +631,18 @@
                 meetTitle: "Meetings & Events", createMeetBtn: "Schedule Meeting",
                 docRepoTitle: "Global Document Repository", addDocBtn: "Add Folder / Doc",
                 addNoteTitle: "Add Note", cancelBtn: "Cancel", saveNoteBtn: "Save", notePlaceholder: "Enter notes...",
-                createMeetTitle: "New Meeting", editMeetTitle: "Edit Meeting", meetNameLabel: "Title", meetNamePlaceholder: "E.g. Review",
+                createMeetTitle: "New Meeting", meetNameLabel: "Title", meetNamePlaceholder: "E.g. Review",
                 meetTimeLabel: "Time", meetLinkLabel: "Join Link", meetAttendeesLabel: "Attendees (emails, comma-separated)",
                 meetAttendeesPlaceholder: "E.g. ceo@nexos.vn", meetAgendaLabel: "Agenda", meetAgendaPlaceholder: "Meeting agenda...",
                 saveMeetBtn: "Save Meeting", meetDetailTitle: "Meeting Details", meetAttendeesLabel2: "Attendees",
-                meetJoinLink: "Join Link", meetMomLink: "Minutes (MOM)", closeBtn: "Close", editBtn: "Edit",
+                meetJoinLink: "Join Link", meetMomLink: "Minutes (MOM)", closeBtn: "Close",
                 noMeet: "No meetings scheduled.", noDoc: "No documents yet.", noNote: "No notes yet.",
                 markDone: "Done", addNoteNew: "Add Note", pasteLink: "Paste doc link...", pasteMom: "Paste MOM link...",
                 folderName: "Enter name...", noLink: "No Link", join: "Join", detail: "Details", viewMom: "View MOM",
                 unspecified: "Unspecified", noContent: "No content.", noMom: "No MOM yet", attendeesEmpty: "No attendees",
                 openLink: "Open Link", itSupport: "IT Support", detailsTxt: "Details:", alertMeet: "Enter Title and Time.",
                 confirmDelete: "Are you sure you want to delete?", addBtnText: "Add", addDelivBtn: "Add Deliverable",
-                promptEdit: "Enter new content:", promptDeliv: "Deliverable Name:", promptMsDate: "Enter timeline (E.g. 16/03 - 25/03):",
-                loadingText: "Loading data..."
+                promptEdit: "Enter new content:", promptDeliv: "Deliverable Name:", promptMsDate: "Enter timeline (E.g. 16/03 - 25/03):"
             }
         };
 
@@ -817,9 +673,9 @@
             renderDocumentTree();
         }
 
-        // =============================================
-        // CORE APP DATA
-        // =============================================
+        // --- CORE APP DATA & LOGIC ---
+        const LOCAL_STORAGE_KEY = 'nexos_mvp_state_v5_google_sync'; 
+
         const STATUSES = {
             open: { label: { vi: 'Open', en: 'Open' }, color: 'bg-slate-600 text-slate-300', icon: '<circle cx="12" cy="12" r="5" fill="currentColor"/>' },
             in_progress: { label: { vi: 'In Progress', en: 'In Progress' }, color: 'bg-blue-500 text-white shadow-[0_0_8px_rgba(59,130,246,0.6)]', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />' },
@@ -828,7 +684,7 @@
         };
         const statusKeys = Object.keys(STATUSES);
 
-        // Initial Data Structure (5 Milestones)
+        // Khởi tạo Dữ liệu Gốc (5 Milestone tĩnh)
         let sprintsData = [
             {
                 id: 1, date: "16/03 - 25/03", 
@@ -846,9 +702,11 @@
                     { id: "d1_1", text: { vi: "PRD đã thống nhất", en: "Finalized PRD" }, status: "open", link: "", notes: [] },
                     { id: "d1_2", text: { vi: "Sơ đồ Userflow", en: "Userflow diagram" }, status: "open", link: "", notes: [] },
                     { id: "d1_3", text: { vi: "Sơ đồ Cashflow", en: "Cashflow diagram" }, status: "open", link: "", notes: [] },
-                    { id: "d1_4", text: { vi: `Bộ tài liệu đóng gói (gửi IT support)`, en: `Packaging documents (send to IT)` }, status: "open", link: "", notes: [] }
+                    { id: "d1_4", text: { vi: `<u class="underline-offset-4 decoration-slate-500">Bộ tài liệu đóng gói</u> <span class="text-amber-400 font-semibold italic text-xs ml-1">(gửi IT support)</span>`, en: `<u class="underline-offset-4 decoration-slate-500">Packaging documents</u> <span class="text-amber-400 font-semibold italic text-xs ml-1">(send to IT)</span>` }, status: "open", link: "", notes: [] }
                 ],
-                meetings: []
+                meetings: [
+                    { id: "m1_1", title: "Kick-off & Chốt PRD", time: "2026-03-18T09:30", link: "https://meet.google.com/abc-xyz", attendees: ["CEO", "CPO", "IT Lead"], agenda: "Review initial PRD", momLink: "" }
+                ]
             },
             {
                 id: 2, date: "26/03 - 05/04", 
@@ -925,53 +783,65 @@
         let activeNodeIndex = 0;
         let activeDelivForNote = null; 
         let documentTreeData = [
-            { id: "doc_root_1", name: { vi: "1. Pháp lý & Kế toán", en: "1. Legal & Accounting" }, link: "", isOpen: true, children: [] },
-            { id: "doc_root_2", name: { vi: "2. Master Plan & Báo cáo", en: "2. Master Plan & Reports" }, link: "", isOpen: true, children: [] }
+            {
+                id: "doc_root_1",
+                name: { vi: "1. Pháp lý & Kế toán", en: "1. Legal & Accounting" },
+                link: "",
+                isOpen: true,
+                children: [
+                    { id: "doc_child_1_1", name: { vi: "Giấy phép ĐKKD", en: "Business License" }, link: "", isOpen: false, children: [] }
+                ]
+            },
+            {
+                id: "doc_root_2",
+                name: { vi: "2. Master Plan & Báo cáo", en: "2. Master Plan & Reports" },
+                link: "https://docs.google.com/spreadsheets/...",
+                isOpen: true,
+                children: []
+            }
         ];
 
-        // =============================================
-        // LOCAL STORAGE (Cache)
-        // =============================================
+        /**
+         * Load state - MODIFIED to use Google Sheets
+         */
         function loadState() {
-            // Load from localStorage (synchronous)
-            const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (saved) {
-                try {
-                    const parsed = JSON.parse(saved);
-                    if(parsed.sprints) sprintsData = parsed.sprints;
-                    if(parsed.documents) documentTreeData = parsed.documents;
-                } catch(e) {
-                    console.error('Parse error:', e);
-                }
+            // Luôn load từ localStorage trước (để offline)
+            loadFromLocalStorage();
+            
+            // Nếu có kết nối, sync từ cloud
+            if (GOOGLE_SCRIPT_URL) {
+                syncFromCloud();
+            } else {
+                updateSyncStatus('offline', 'Chưa kết nối');
             }
         }
 
+        /**
+         * Save state - MODIFIED to sync to Google Sheets
+         */
         function saveState() {
-            // Save to localStorage
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sprints: sprintsData, documents: documentTreeData }));
-            // Save to Gist
-            autoSave();
-            calculateTimelineProgress();
-        }
-        
-        // Original saveState (renamed)
-        function saveStateLocal() {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ sprints: sprintsData, documents: documentTreeData }));
+            // Lưu local ngay lập tức
+            saveToLocalStorage();
+            
+            // Sync lên cloud (nếu có kết nối)
+            syncToCloud();
+            
             calculateTimelineProgress();
         }
 
-        // =============================================
-        // TIMELINE LOGIC
-        // =============================================
+        // --- TIMELINE LOGIC (ĐỘNG - THEO NGÀY TỰ NHẬP) ---
         function parseDateRange(dateStr) {
             try {
                 const parts = dateStr.split('-');
                 let start = parts[0].trim().split('/');
                 let end = parts[1] ? parts[1].trim().split('/') : start;
                 const year = new Date().getFullYear();
+                
                 const startDate = new Date(year, parseInt(start[1]) - 1, parseInt(start[0]));
                 const endDate = new Date(year, parseInt(end[1]) - 1, parseInt(end[0]));
+                
                 if (endDate < startDate) endDate.setFullYear(year + 1);
+                
                 return { start: startDate.getTime(), end: endDate.getTime() };
             } catch(e) {
                 const now = Date.now(); return { start: now, end: now + 86400000 };
@@ -981,6 +851,7 @@
         function calculateTimelineProgress() {
             const milestones = sprintsData.map(s => parseDateRange(s.date).start);
             milestones.push(parseDateRange(sprintsData[sprintsData.length-1].date).end);
+
             const now = new Date();
             const todayTime = now.getTime();
             let percentage = 0;
@@ -1032,9 +903,7 @@
 
         window.addEventListener('resize', calculateTimelineProgress);
 
-        // =============================================
-        // RENDER NODES
-        // =============================================
+        // --- RENDER NODES ---
         function renderNodes() {
             const container = document.getElementById('nodes-container');
             container.innerHTML = '';
@@ -1044,8 +913,10 @@
                 const nodeClasses = isActive ? `scale-125 shadow-lg ${sprint.shadow} ring-4 ring-slate-800` : 'scale-100 opacity-80 hover:opacity-100 hover:scale-110 cursor-pointer bg-slate-800 border-slate-700 text-slate-400';
                 const nodeColor = isActive ? sprint.color : 'border-4 border-slate-950';
                 const iconColor = isActive ? 'text-white' : 'text-slate-500';
+
                 const iconModified = sprint.icon.replace('text-white', iconColor);
                 const sprintTitleText = t(sprint.title).split(':')[0];
+
                 const totalDelivs = sprint.deliverables.length;
                 const completedDelivs = sprint.deliverables.filter(d => d.status === 'completed').length;
                 const progressPct = totalDelivs > 0 ? Math.round((completedDelivs / totalDelivs) * 100) : 0;
@@ -1078,9 +949,7 @@
             });
         }
 
-        // =============================================
-        // DASHBOARD
-        // =============================================
+        // --- DASHBOARD ---
         window.editMilestoneDate = function() {
             const current = sprintsData[activeNodeIndex].date;
             const newDate = prompt(TRANSLATIONS[currentLang].promptMsDate, current);
@@ -1089,7 +958,6 @@
                 saveState(); 
                 renderNodes(); 
                 updateDashboard(activeNodeIndex);
-                saveMilestoneToAPI(activeNodeIndex + 1, newDate);
             }
         }
 
@@ -1097,6 +965,7 @@
             activeNodeIndex = index;
             const data = sprintsData[index];
             document.getElementById('detail-date').textContent = data.date;
+            
             const fullTitle = t(data.title);
             document.getElementById('detail-title').textContent = fullTitle.includes(':') ? fullTitle.split(':')[1].trim() : fullTitle;
             
@@ -1121,9 +990,7 @@
             updateDashboard(index);
         }
 
-        // =============================================
-        // CRUD FOR TASKS, TOOLS
-        // =============================================
+        // --- CRUD LOGIC FOR TASKS, TOOLS ---
         function renderEditableList(items, iconSVG, type, sprintIndex) {
             return items.map((item, idx) => `
                 <li class="group flex items-start justify-between bg-transparent hover:bg-slate-800/50 p-1.5 -mx-1.5 rounded transition-colors">
@@ -1143,8 +1010,6 @@
             if(val) {
                 sprintsData[activeNodeIndex][type].push(val);
                 saveState(); updateDashboard(activeNodeIndex);
-                if(type === 'tasks') saveTasksToAPI(activeNodeIndex);
-                else if(type === 'tools') saveToolsToAPI(activeNodeIndex);
             }
         }
 
@@ -1154,8 +1019,6 @@
             if(val && val !== current) {
                 sprintsData[sprintIndex][type][idx] = val;
                 saveState(); updateDashboard(sprintIndex);
-                if(type === 'tasks') saveTasksToAPI(sprintIndex);
-                else if(type === 'tools') saveToolsToAPI(sprintIndex);
             }
         }
 
@@ -1163,13 +1026,9 @@
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             sprintsData[sprintIndex][type].splice(idx, 1);
             saveState(); updateDashboard(sprintIndex);
-            if(type === 'tasks') saveTasksToAPI(sprintIndex);
-            else if(type === 'tools') saveToolsToAPI(sprintIndex);
         }
 
-        // =============================================
-        // DELIVERABLES LOGIC
-        // =============================================
+        // --- DELIVERABLES LOGIC ---
         function renderDeliverablesList(sprintIndex) {
             const deliverables = sprintsData[sprintIndex].deliverables;
             const container = document.getElementById('deliverable-list');
@@ -1180,6 +1039,7 @@
                 const hasNotes = item.notes.length > 0;
                 const unreadNotes = item.notes.filter(n => !n.is_resolved).length;
                 const linkIconColor = item.link ? 'text-cyan-400 hover:text-cyan-300' : 'text-slate-600 hover:text-slate-400';
+                
                 const itemTextHTML = t(item.text);
                 const itemTextPlain = itemTextHTML.replace(/<[^>]*>?/gm, '').replace(/"/g, '&quot;');
 
@@ -1190,8 +1050,10 @@
                             <button onclick="toggleStatus(${sprintIndex}, ${dIdx})" class="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full ${statusObj.color} transition-all" title="${t(statusObj.label)}">
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">${statusObj.icon}</svg>
                             </button>
+                            
                             <div class="relative flex-1 min-w-0 flex items-center gap-2">
                                 <div class="text-sm font-medium text-slate-200 truncate pr-2 cursor-pointer hover:text-cyan-300 transition-colors" onclick="toggleNotePanel(${sprintIndex}, ${dIdx})" title="${itemTextPlain}">${itemTextHTML}</div>
+                                
                                 ${hasNotes ? `
                                     <div class="relative flex-shrink-0 flex items-center justify-center w-5 h-5 bg-slate-700 rounded-full border border-slate-600 cursor-pointer" onclick="toggleNotePanel(${sprintIndex}, ${dIdx})">
                                         <svg class="w-3 h-3 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd"></path></svg>
@@ -1199,22 +1061,25 @@
                                     </div>
                                 ` : `
                                     <div class="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 text-slate-500 hover:text-cyan-400 cursor-pointer" onclick="openNoteModal(${sprintIndex}, ${dIdx})" title="${TRANSLATIONS[currentLang].addNoteNew}">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.418 9 8z"></path></svg>
                                     </div>
                                 `}
                             </div>
                         </div>
+
                         <div class="flex-shrink-0 flex items-center gap-2 w-full md:w-auto mt-2 md:mt-0 pt-2 md:pt-0 border-t md:border-0 border-slate-700/50">
                             <div class="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity shrink-0">
                                 <button onclick="editDeliverableTitle(${sprintIndex}, ${dIdx})" class="p-1 text-slate-500 hover:text-cyan-400 bg-slate-900 rounded" title="Sửa tên"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></button>
                                 <button onclick="deleteDeliverable(${sprintIndex}, ${dIdx})" class="p-1 text-slate-500 hover:text-rose-400 bg-slate-900 rounded" title="Xóa"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                             </div>
+
                             <input type="text" id="link-input-${sprintIndex}-${dIdx}" 
                                 class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 w-full md:w-32 focus:w-full md:focus:w-48 transition-all focus:outline-none focus:border-cyan-500" 
                                 placeholder="${TRANSLATIONS[currentLang].pasteLink}" value="${item.link}" title="${item.link}" onblur="saveLink(${sprintIndex}, ${dIdx}, this.value)">
                             <a href="${item.link || '#'}" target="${item.link ? '_blank' : '_self'}" class="${linkIconColor} p-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>
                         </div>
                     </div>
+
                     <div id="note-panel-${sprintIndex}-${dIdx}" class="hidden mt-3 pt-3 border-t border-slate-700/50 custom-scrollbar max-h-64 overflow-y-auto">
                         <div class="space-y-2 mb-3">
                             ${item.notes.length === 0 ? `<p class="text-xs text-slate-500 italic">${TRANSLATIONS[currentLang].noNote}</p>` : 
@@ -1241,12 +1106,10 @@
         function addDeliverable() {
             const val = prompt(TRANSLATIONS[currentLang].promptDeliv);
             if(val) {
-                const newDeliv = {
-                    id: 'd_'+Date.now(), text: { vi: val, en: val }, status: 'open', link: '', notes: []
-                };
-                sprintsData[activeNodeIndex].deliverables.push(newDeliv);
+                sprintsData[activeNodeIndex].deliverables.push({
+                    id: 'd_'+Date.now(), text: val, status: 'open', link: '', notes: []
+                });
                 saveState(); updateDashboard(activeNodeIndex); renderNodes();
-                saveDeliverableToAPI(activeNodeIndex, sprintsData[activeNodeIndex].deliverables.length - 1);
             }
         }
 
@@ -1254,32 +1117,27 @@
             const current = t(sprintsData[sprintIndex].deliverables[dIdx].text);
             const val = prompt(TRANSLATIONS[currentLang].promptEdit, current);
             if(val && val !== current) {
-                sprintsData[sprintIndex].deliverables[dIdx].text = { vi: val, en: val };
+                sprintsData[sprintIndex].deliverables[dIdx].text = val;
                 saveState(); updateDashboard(sprintIndex);
-                saveDeliverableToAPI(sprintIndex, dIdx);
             }
         }
 
-        async function deleteDeliverable(sprintIndex, dIdx) {
+        function deleteDeliverable(sprintIndex, dIdx) {
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
-            const delivId = sprintsData[sprintIndex].deliverables[dIdx].id;
             sprintsData[sprintIndex].deliverables.splice(dIdx, 1);
             saveState(); updateDashboard(sprintIndex); renderNodes();
-            await deleteDeliverableFromAPI(delivId);
         }
 
         function toggleStatus(sprintIndex, delivIndex) {
             const currentStatus = sprintsData[sprintIndex].deliverables[delivIndex].status;
             let currentIndex = statusKeys.indexOf(currentStatus);
             sprintsData[sprintIndex].deliverables[delivIndex].status = statusKeys[(currentIndex + 1) % statusKeys.length];
-            saveState(); renderDeliverablesList(sprintIndex); renderNodes();
-            saveDeliverableToAPI(sprintIndex, delivIndex);
+            saveState(); renderDeliverablesList(sprintIndex); renderNodes(); 
         }
 
         function saveLink(sprintIndex, delivIndex, value) {
             sprintsData[sprintIndex].deliverables[delivIndex].link = value.trim();
             saveState(); renderDeliverablesList(sprintIndex);
-            saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
         function toggleNotePanel(sprintIndex, delivIndex) {
@@ -1290,9 +1148,7 @@
             } else panel.classList.add('hidden');
         }
 
-        // =============================================
-        // NOTES LOGIC
-        // =============================================
+        // --- NOTES LOGIC ---
         const noteModal = document.getElementById('note-modal');
         const noteInput = document.getElementById('note-input');
 
@@ -1316,7 +1172,6 @@
                 saveState(); renderDeliverablesList(sprintIndex);
                 document.getElementById(`note-panel-${sprintIndex}-${delivIndex}`).classList.remove('hidden');
                 closeNoteModal();
-                saveDeliverableToAPI(sprintIndex, delivIndex);
             }
         });
 
@@ -1324,12 +1179,9 @@
             sprintsData[sprintIndex].deliverables[delivIndex].notes[noteIndex].is_resolved = true;
             saveState(); renderDeliverablesList(sprintIndex);
             document.getElementById(`note-panel-${sprintIndex}-${delivIndex}`).classList.remove('hidden');
-            saveDeliverableToAPI(sprintIndex, delivIndex);
         }
 
-        // =============================================
-        // MEETINGS LOGIC
-        // =============================================
+        // --- MEETINGS LOGIC ---
         function getInitials(name) {
             const c = name.split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
             return c.length >= 2 ? c.substring(0, 2).toUpperCase() : (c.toUpperCase() || '??');
@@ -1373,76 +1225,43 @@
             }).join('');
         }
 
-        window.deleteMeeting = async function(sprintIndex, meetId) {
+        window.deleteMeeting = function(sprintIndex, meetId) {
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             sprintsData[sprintIndex].meetings = sprintsData[sprintIndex].meetings.filter(m => m.id !== meetId);
             saveState(); updateDashboard(sprintIndex);
-            await deleteMeetingFromAPI(meetId);
         }
 
         const meetModal = document.getElementById('meeting-modal');
-        let currentEditingMeeting = null;
-        
         function openMeetingModal() {
-            currentEditingMeeting = null;
-            document.getElementById('meeting-modal-title').textContent = TRANSLATIONS[currentLang].createMeetTitle;
-            document.getElementById('meet-title').value = '';
-            document.getElementById('meet-time').value = '';
-            document.getElementById('meet-link').value = '';
-            document.getElementById('meet-attendees').value = '';
-            document.getElementById('meet-agenda').value = '';
             meetModal.classList.remove('hidden');
             setTimeout(() => meetModal.classList.remove('opacity-0'), 10);
         }
-        
         function closeMeetingModal() {
             meetModal.classList.add('opacity-0');
             setTimeout(() => meetModal.classList.add('hidden'), 300);
         }
 
-        document.getElementById('save-meeting-btn').addEventListener('click', async () => {
+        document.getElementById('save-meeting-btn').addEventListener('click', () => {
             const title = document.getElementById('meet-title').value.trim();
             const time = document.getElementById('meet-time').value;
             if(!title || !time) { alert(TRANSLATIONS[currentLang].alertMeet); return; }
 
             const attendeesList = document.getElementById('meet-attendees').value.trim().split(',').map(s => s.trim()).filter(s => s);
-            
-            if(currentEditingMeeting) {
-                const { sprintIndex, meet } = currentEditingMeeting;
-                meet.title = title;
-                meet.time = time;
-                meet.link = document.getElementById('meet-link').value.trim();
-                meet.attendees = attendeesList;
-                meet.agenda = document.getElementById('meet-agenda').value.trim();
-                
-                saveState(); 
-                updateDashboard(sprintIndex); 
-                closeMeetingModal();
-                await updateMeetingToAPI(meet);
-                currentEditingMeeting = null;
-            } else {
-                const meeting = {
-                    id: 'm_' + Date.now(), title, time,
-                    link: document.getElementById('meet-link').value.trim(),
-                    attendees: attendeesList,
-                    agenda: document.getElementById('meet-agenda').value.trim(),
-                    momLink: ""
-                };
-                
-                sprintsData[activeNodeIndex].meetings.push(meeting);
-                saveState(); updateDashboard(activeNodeIndex); closeMeetingModal();
-                await addMeetingToAPI(activeNodeIndex, meeting);
-            }
+            sprintsData[activeNodeIndex].meetings.push({
+                id: 'm_' + Date.now(), title, time,
+                link: document.getElementById('meet-link').value.trim(),
+                attendees: attendeesList,
+                agenda: document.getElementById('meet-agenda').value.trim(),
+                momLink: ""
+            });
+            saveState(); updateDashboard(activeNodeIndex); closeMeetingModal();
         });
 
         const detailModal = document.getElementById('meeting-detail-modal');
-        
         window.viewMeetingDetails = function(sprintIndex, meetId) {
             const meet = sprintsData[sprintIndex].meetings.find(m => m.id === meetId);
             if(!meet) return;
-            
-            currentEditingMeeting = { sprintIndex, meetId, meet };
-            
+
             document.getElementById('detail-meet-title').textContent = meet.title;
             const dObj = new Date(meet.time);
             document.getElementById('detail-meet-time').textContent = dObj.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
@@ -1464,41 +1283,15 @@
             detailModal.classList.remove('hidden');
             setTimeout(() => detailModal.classList.remove('opacity-0'), 10);
         }
-        
         window.closeMeetingDetailModal = function() {
             detailModal.classList.add('opacity-0'); setTimeout(() => detailModal.classList.add('hidden'), 300);
         }
-        
         window.saveMomLink = function(sprintIndex, meetId, value) {
             const meet = sprintsData[sprintIndex].meetings.find(m => m.id === meetId);
-            if(meet) { meet.momLink = value.trim(); saveState(); renderMeetingsList(sprintIndex); updateMeetingToAPI(meet); }
+            if(meet) { meet.momLink = value.trim(); saveState(); renderMeetingsList(sprintIndex); }
         };
-        
-        window.openEditMeetingModal = function() {
-            if(!currentEditingMeeting) return;
-            const { meet } = currentEditingMeeting;
-            
-            document.getElementById('meeting-modal-title').textContent = TRANSLATIONS[currentLang].editMeetTitle;
-            document.getElementById('meet-title').value = meet.title || '';
-            document.getElementById('meet-time').value = meet.time || '';
-            document.getElementById('meet-link').value = meet.link || '';
-            document.getElementById('meet-attendees').value = (meet.attendees || []).join(', ');
-            document.getElementById('meet-agenda').value = meet.agenda || '';
-            
-            closeMeetingDetailModal();
-            setTimeout(() => {
-                meetModal.classList.remove('hidden');
-                setTimeout(() => meetModal.classList.remove('opacity-0'), 10);
-            }, 300);
-        };
-        
-        document.getElementById('edit-meeting-btn').addEventListener('click', openEditMeetingModal);
 
-        // =============================================
-        // GLOBAL DOCUMENT TREE WITH DRAG & DROP
-        // =============================================
-        let draggedDocId = null;
-        
+        // --- GLOBAL DOCUMENT TREE ---
         function findDocNode(nodes, id) {
             for (let i = 0; i < nodes.length; i++) {
                 if (nodes[i].id === id) return { node: nodes[i], parentArray: nodes, index: i };
@@ -1514,43 +1307,29 @@
                 return;
             }
             container.innerHTML = buildTreeHTML(documentTreeData, 0);
-            setupDragAndDrop();
         }
 
         function buildTreeHTML(nodes, level) {
             let html = '';
-            nodes.forEach((node, idx) => {
+            nodes.forEach(node => {
                 const paddingLeft = level * 28 + 8;
                 const nodeNameText = t(node.name);
                 const nodeNamePlain = nodeNameText.replace(/<[^>]*>?/gm, '').replace(/"/g, '&quot;');
                 html += `
-                    <div class="doc-item flex items-center group py-2 border-b border-slate-800/50 hover:bg-slate-800/30" 
-                         style="padding-left: ${paddingLeft}px;" 
-                         data-doc-id="${node.id}"
-                         data-level="${level}">
-                        <div class="drag-handle flex items-center justify-center shrink-0 select-none" 
-                             draggable="true"
-                             data-drag-handle="${node.id}"
-                             ondragstart="handleDragStart(event, '${node.id}')"
-                             ondragend="handleDragEnd(event)"
-                             title="Kéo thả để di chuyển">
-                            <svg class="w-4 h-4 text-slate-300" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-                        </div>
-                        <div class="flex-1 flex items-center gap-2 min-w-0" 
-                             ondragover="handleDragOver(event)"
-                             ondragleave="handleDragLeave(event)"
-                             ondrop="handleDrop(event, '${node.id}')">
-                            <button onclick="toggleDocFolder('${node.id}')" class="text-slate-400 w-5 h-5 flex items-center justify-center shrink-0">
-                                ${node.children && node.children.length ? `<svg class="w-4 h-4 transform ${node.isOpen ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>` : ''}
-                            </button>
-                            <svg class="w-4 h-4 ${(node.children && node.children.length) ? 'text-emerald-500' : 'text-slate-400'} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${(node.children && node.children.length) ? 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' : 'M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z'}"></path></svg>
+                    <div class="flex items-center group py-1 border-b border-slate-800/50 hover:bg-slate-800/30" style="padding-left: ${paddingLeft}px;">
+                        <button onclick="toggleDocFolder('${node.id}')" class="text-slate-400 w-5 h-5 flex items-center justify-center shrink-0">
+                            ${node.children && node.children.length ? `<svg class="w-4 h-4 transform ${node.isOpen ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>` : ''}
+                        </button>
+                        <svg class="w-4 h-4 ${(node.children && node.children.length) ? 'text-emerald-500' : 'text-slate-400'} shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${(node.children && node.children.length) ? 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z' : 'M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z'}"></path></svg>
+                        
+                        <div class="flex items-center flex-1 gap-3 ml-2 min-w-0">
                             <input type="text" value="${nodeNameText}" title="${nodeNamePlain}" class="bg-transparent border-b border-transparent hover:border-slate-600 focus:border-emerald-500 focus:outline-none text-sm text-slate-200 font-medium px-1 w-64 truncate" onblur="updateDocInfo('${node.id}', 'name', this.value)">
                             <input type="text" value="${node.link}" title="${node.link}" class="bg-slate-800/50 border border-slate-700/50 focus:border-emerald-500 rounded px-2 text-xs text-slate-400 w-48 truncate" placeholder="${TRANSLATIONS[currentLang].pasteLink}" onblur="updateDocInfo('${node.id}', 'link', this.value)">
                             <a href="${node.link || '#'}" target="_blank" class="${node.link ? 'text-cyan-400' : 'text-slate-600 pointer-events-none'} p-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg></a>
-                            <div class="flex items-center opacity-0 group-hover:opacity-100 shrink-0">
-                                <button onclick="addChildDocument('${node.id}')" class="p-1 text-slate-400 hover:text-emerald-400"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg></button>
-                                <button onclick="deleteDocument('${node.id}')" class="p-1 text-slate-400 hover:text-rose-400"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
-                            </div>
+                        </div>
+                        <div class="flex items-center opacity-0 group-hover:opacity-100 pr-2 shrink-0">
+                            <button onclick="addChildDocument('${node.id}')" class="p-1 text-slate-400 hover:text-emerald-400"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg></button>
+                            <button onclick="deleteDocument('${node.id}')" class="p-1 text-slate-400 hover:text-rose-400"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
                         </div>
                     </div>`;
                 if (node.isOpen && node.children) html += buildTreeHTML(node.children, level + 1);
@@ -1558,180 +1337,44 @@
             return html;
         }
 
-        // Drag and Drop handlers
-        window.handleDragStart = function(e, docId) {
-            draggedDocId = docId;
-            // Find parent doc-item and style it
-            const docItem = e.target.closest('.doc-item');
-            if (docItem) {
-                docItem.classList.add('dragging');
-            }
-            e.target.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', docId);
-            // Add slight delay to show the dragging state
-            setTimeout(() => {
-                if (docItem) docItem.style.opacity = '0.5';
-            }, 0);
-        };
-
-        window.handleDragEnd = function(e) {
-            e.target.classList.remove('dragging');
-            // Find parent doc-item and remove styling
-            const docItem = e.target.closest('.doc-item');
-            if (docItem) {
-                docItem.classList.remove('dragging');
-                docItem.style.opacity = '';
-            }
-            document.querySelectorAll('.doc-item').forEach(el => {
-                el.classList.remove('drag-over', 'drag-over-bottom');
-            });
-            draggedDocId = null;
-        };
-
-        window.handleDragOver = function(e) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            
-            const target = e.target.closest('.doc-item');
-            if (!target || target.dataset.docId === draggedDocId) return;
-            
-            const rect = target.getBoundingClientRect();
-            const midY = rect.top + rect.height / 2;
-            
-            document.querySelectorAll('.doc-item').forEach(el => {
-                el.classList.remove('drag-over', 'drag-over-bottom');
-            });
-            
-            if (e.clientY < midY) {
-                target.classList.add('drag-over');
-            } else {
-                target.classList.add('drag-over-bottom');
-            }
-        };
-
-        window.handleDragLeave = function(e) {
-            const target = e.target.closest('.doc-item');
-            if (target) {
-                target.classList.remove('drag-over', 'drag-over-bottom');
-            }
-        };
-
-        window.handleDrop = function(e, targetId) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            if (!draggedDocId || draggedDocId === targetId) return;
-            
-            const draggedRes = findDocNode(documentTreeData, draggedDocId);
-            const targetRes = findDocNode(documentTreeData, targetId);
-            
-            if (!draggedRes || !targetRes) return;
-            
-            const targetEl = e.target.closest('.doc-item');
-            if (!targetEl) return;
-            
-            const rect = targetEl.getBoundingClientRect();
-            const midY = rect.top + rect.height / 2;
-            const dropAfter = e.clientY >= midY;
-            
-            // Remove dragged item from its current position
-            const [draggedNode] = draggedRes.parentArray.splice(draggedRes.index, 1);
-            
-            if (dropAfter) {
-                // Insert after target
-                const targetIndex = targetRes.parentArray.indexOf(targetRes.node);
-                targetRes.parentArray.splice(targetIndex + 1, 0, draggedNode);
-            } else {
-                // Insert before target
-                const targetIndex = targetRes.parentArray.indexOf(targetRes.node);
-                targetRes.parentArray.splice(targetIndex, 0, draggedNode);
-            }
-            
-            saveState();
-            renderDocumentTree();
-            saveDocumentsToAPI();
-        };
-
-        function setupDragAndDrop() {
-            // Already handled by inline event handlers in buildTreeHTML
-        }
-
         function addRootDocument() {
-            documentTreeData.push({ id: 'doc_' + Date.now(), name: { vi: 'Tài liệu mới', en: 'New Document' }, link: '', isOpen: true, children: [] });
+            documentTreeData.push({ id: 'doc_' + Date.now(), name: 'Tài liệu mới', link: '', isOpen: true, children: [] });
             saveState(); renderDocumentTree();
-            saveDocumentsToAPI();
         }
-        
         function addChildDocument(parentId) {
             const res = findDocNode(documentTreeData, parentId);
-            if (res) { 
-                res.node.children.push({ id: 'doc_' + Date.now(), name: { vi: 'Mục con mới', en: 'New Item' }, link: '', isOpen: true, children: [] }); 
-                res.node.isOpen = true; 
-                saveState(); renderDocumentTree(); 
-                saveDocumentsToAPI(); 
-            }
+            if (res) { res.node.children.push({ id: 'doc_' + Date.now(), name: 'Mục con mới', link: '', isOpen: true, children: [] }); res.node.isOpen = true; saveState(); renderDocumentTree(); }
         }
-        
         function updateDocInfo(id, field, value) {
             const res = findDocNode(documentTreeData, id);
-            if (res) {
-                const currentValue = res.node[field];
-                const currentText = typeof currentValue === 'object' ? t(currentValue) : currentValue;
-                if (currentText !== value.trim()) {
-                    if (field === 'name') {
-                        res.node.name = { vi: value.trim(), en: value.trim() };
-                    } else {
-                        res.node[field] = value.trim();
-                    }
-                    saveState(); renderDocumentTree();
-                    saveDocumentsToAPI();
-                }
-            }
+            if (res && t(res.node[field]) !== value.trim()) { res.node[field] = value.trim(); saveState(); renderDocumentTree(); }
         }
-        
-        async function deleteDocument(id) {
+        function deleteDocument(id) {
             if(!confirm(TRANSLATIONS[currentLang].confirmDelete)) return;
             const res = findDocNode(documentTreeData, id);
-            if (res) { 
-                res.parentArray.splice(res.index, 1); 
-                saveState(); renderDocumentTree(); 
-                await deleteDocumentFromAPI(id);
-                saveDocumentsToAPI();
-            }
+            if (res) { res.parentArray.splice(res.index, 1); saveState(); renderDocumentTree(); }
         }
-        
         function toggleDocFolder(id) {
             const res = findDocNode(documentTreeData, id);
-            if (res && res.node.children.length) { res.node.isOpen = !res.node.isOpen; saveState(); renderDocumentTree(); }
+            if (res && res.node.children && res.node.children.length) { res.node.isOpen = !res.node.isOpen; saveState(); renderDocumentTree(); }
         }
 
-        // =============================================
-        // INITIALIZATION
-        // =============================================
-        async function initApp() {
-            // Load local cache first
-            loadState();
-            
-            // Sync with Gist (token đã có sẵn)
-            await loadFromGist();
-            
-            // Render UI
+        // --- INIT APP ---
+        document.addEventListener('DOMContentLoaded', () => {
             updateStaticUI();
+            loadState();
             renderNodes();
             updateDashboard(activeNodeIndex);
             renderDocumentTree();
+            calculateTimelineProgress();
             
-            // Calculate timeline
-            setTimeout(calculateTimelineProgress, 100);
-            
-            // Hide loading overlay
-            document.getElementById('loading-overlay').style.display = 'none';
-        }
-        
-        // Start app
-        initApp();
+            // Auto-sync mỗi 30 giây (nếu có kết nối)
+            setInterval(() => {
+                if (GOOGLE_SCRIPT_URL && !isSyncing) {
+                    syncFromCloud();
+                }
+            }, 30000);
+        });
     </script>
 </body>
 </html>
-<!-- Build: 1774306375 -->
